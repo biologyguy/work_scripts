@@ -1,0 +1,10 @@
+#Python binaries
+*.pyc
+
+#PyCharm profile stuff
+.idea
+.idea/*
+
+#Mac system stuff
+.DS_Store
+
