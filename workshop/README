@@ -1,0 +1,2 @@
+This is the directory where all new scripts should be born and built. 
+Nothing should leave the workshop until it stands alone as a command line program (accepts arguments and outputs something) or as a module. 
