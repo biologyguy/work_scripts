@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 from Bio import SeqIO, AlignIO, Seq
 import argparse
 

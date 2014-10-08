@@ -6,6 +6,15 @@ from Bio import AlignIO
 from Bio.SubsMat import MatrixInfo
 
 
+parser = argparse.ArgumentParser(prog="msa_parse", description="Takes a multiple sequence alignment, and outputs the %ID and %SIM for all vs. all (or subset if -s flag is used)")
+parser.add_argument('in_file', help='Must be in fasta format', action='store')
+parser.add_argument('-s', '--search_string', help='groups a subset of sequences together, and compares them against everyone else', action="store", default=False)
+parser.add_argument('-i', '--internal', help='Only compares the sequences in -s', action="store_true", default=False)
+parser.add_argument('-n', '--not_internal', help='Only compares the sequences not in -s', action="store_true", default=False)
+
+in_args = parser.parse_args()
+
+
 def ConvertSubMatrix(sub_matrix):
         #this is taking a MatrixInfo object, and converting it into a 2D dictionary instead of a 1D dictionary, stripping out residues B and Z, and adding in gap penalty. It will break if some other type of data is fed into it.
         converted_sub_matrix = {"A": {}, "C": {}, "D": {}, "E": {}, "F": {}, "G": {}, "H": {}, "I": {}, "K": {}, "L": {}, "M": {}, "N": {}, "P": {}, "Q": {}, "R": {}, "S": {}, "T": {}, "V": {}, "W": {}, "Y": {}, "X": {}, "-": {}}
@@ -57,15 +66,6 @@ def comp(aln1, aln2, matrix):
     output['id'] /= output['len']
     
     return output
-
-        
-parser = argparse.ArgumentParser(prog="msa_parse", description="Takes a multiple sequence alignment, and outputs the %ID and %SIM for all vs. all (or subset if -s flag is used)")
-parser.add_argument('in_file', help='Must be in fasta format', action='store')
-parser.add_argument('-s', '--search_string', help='groups a subset of sequences together, and compares them against everyone else', action="store", default=False)
-parser.add_argument('-i', '--internal', help='Only compares the sequences in -s', action="store_true", default=False)
-parser.add_argument('-n', '--not_internal', help='Only compares the sequences not in -s', action="store_true", default=False)
-
-in_args = parser.parse_args()
 
 with open(in_args.in_file, 'r') as alignment_file:
     align_obj = AlignIO.read(alignment_file, 'fasta')
