@@ -8,3 +8,5 @@
 #Mac system stuff
 .DS_Store
 
+#Test files
+/test_files/*
