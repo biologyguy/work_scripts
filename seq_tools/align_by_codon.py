@@ -9,16 +9,17 @@ from MyFuncs import *
 from subprocess import Popen
 from copy import copy
 
-parser = argparse.ArgumentParser(prog="Wrapper for mafft that will do a translation alignment.", description="",
+parser = argparse.ArgumentParser(prog="align_by_codon", description="Wrapper for mafft and muscle to do a translation alignment of CDSs.",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('in_file', help="Path to fasta file. Only use in-frame CDSs, otherwise everything is going to be messed up.", action="store")
-parser.add_argument('mafft_params', help="Arguments that you want passed into mafft (in quotes). Do not specify an out-file here, it will be removed if you try.", action="store")
+parser.add_argument('-p', '--params', help="Arguments that you want passed into command line (in quotes). Do not specify an out-file here, it will be removed if you try.", action="store", default='')
 parser.add_argument('-s', '--save_tmp', help="Keep the protein alignment file? Specify a directory.", action="store", default=False)
+parser.add_argument('-a', '--algorithm', help="Select the program you want to run", choices=["mafft", "muscle"], action="store", default="mafft")
 
 in_args = parser.parse_args()
 in_file = os.path.abspath(in_args.in_file)
 
-mafft_params = re.sub(">.*", "", in_args.mafft_params)
+params = re.sub(">.*", "", in_args.params)
 
 
 def guess_alphabet(fasta_file):
@@ -55,40 +56,45 @@ ofile = open(prot_file.file, "w")
 with open(in_file, "r") as ifile:
     sequences = SeqIO.parse(ifile, "fasta")
     for seq in sequences:
-        seq.seq = seq.seq.translate()
+        seq.seq = seq.seq.translate(to_stop=True)
         seq.alphabet = IUPAC.protein
         SeqIO.write(seq, ofile, "fasta")
 
 ofile.close()
 
-mafft_out_file = TempFile()
-print("Running mafft on translation")
-Popen("mafft %s --quiet %s > %s" % (in_args.mafft_params, prot_file.file, mafft_out_file.file), shell=True).wait()
+out_file = TempFile()
+print("Running alignment on translation", file=sys.stderr)
 
-print("Converting translated alignment back to codons")
-prot_alignment_file = open(mafft_out_file.file, "r")
+if in_args.algorithm == "mafft":
+    Popen("mafft %s %s > %s" % (params, prot_file.file, out_file.file), shell=True).wait()
+
+elif in_args.algorithm == "muscle":
+    Popen("muscle -in %s -out %s %s" % (prot_file.file, out_file.file, params), shell=True).wait()
+
+print("Converting translated alignment back to codons", file=sys.stderr)
+prot_alignment_file = open(out_file.file, "r")
 dna_file = open(in_file, "r")
 
 if in_args.save_tmp:
-    shutil.copy(mafft_out_file.file, "%s/%s_mafft_prot.fa" % (os.path.abspath(in_args.save_tmp), "_".join(in_file.split("/")[-1].split(".")[:-1])))
+    location = in_file.split("/")[-1].split(".")[:-1]
+    shutil.copy(out_file.file, "%s/%s_aln_prot.fa" % (os.path.abspath(in_args.save_tmp), "_".join(location)))
 
 alignment = next(AlignIO.parse(prot_alignment_file, "fasta",))
 alignment = list(alignment)
 
-sequences = list(SeqIO.parse(dna_file, "fasta"))
+sequences = SeqIO.to_dict(SeqIO.parse(dna_file, "fasta"))
 
 new_alignment = []
 
 for i in range(len(alignment)):
     #new_seq = Seq.Seq("", alphabet=IUPAC.unambiguous_dna)
-    new_seq = copy(sequences[i])
+    new_seq = copy(sequences[alignment[i].id])
     new_seq.seq = ""
 
-    orig_dna = sequences[i].seq
+    orig_dna = sequences[alignment[i].id].seq
     dna_pointer = 0
 
     align_prot = alignment[i].seq
-
     for aa in align_prot:
         if aa == "-":
             new_seq.seq += "---"
@@ -103,4 +109,4 @@ prot_alignment_file.close()
 dna_file.close()
 
 for seq in new_alignment:
-    print(">%s\n%s\n" % (seq.id, seq.seq))
+    print(">%s\n%s\n" % (seq.id, seq.seq), file=sys.stdout)
