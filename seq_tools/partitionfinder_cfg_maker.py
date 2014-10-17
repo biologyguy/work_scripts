@@ -124,8 +124,8 @@ blocks = blocks.split("//")
 if blocks[-1] == "":
     blocks = blocks[:-1]
 
-working_dir = "/".join(blocks_file.split("/")[:-1])
-os.chdir(working_dir)
+csv_dir = "/".join(blocks_file.split("/")[:-1])
+os.chdir(csv_dir)
 
 # Make sure that all files specified in data_blocks actually exist, that none of those file names are duplicates, and
 # that none of the sequence blocks within each set have duplicate ids.
@@ -164,7 +164,7 @@ for block in blocks:
     file_name = "_".join(file_name)
     file_name = "_".join(file_name.split(" "))
 
-    new_dir = os.path.abspath(file_name)
+    new_dir = os.path.abspath("%s/%s" % (outdir, file_name))
     if not os.path.exists(new_dir):
         os.mkdir(new_dir)
 
@@ -211,6 +211,5 @@ for block in blocks:
             Popen("partitionfinder --force-restart ./", shell=True).wait()
         else:
             Popen("partitionfinder ./", shell=True).wait()
-        os.chdir(working_dir)
 
 print("Job complete, it ran in %s" % MyFuncs.pretty_time(clock() - start_time))
