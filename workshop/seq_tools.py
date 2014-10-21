@@ -4,6 +4,7 @@
 from MyFuncs import *
 import sys
 import os
+import shutil
 from subprocess import Popen, PIPE
 from multiprocessing import Lock
 from Bio import SearchIO
@@ -68,7 +69,7 @@ class SeqTools():
         for next_file in files:
             if next_file.split(".")[0] == self.name:
                 new_name = "%s_transD.%s" % (self.name, next_file.split(".")[-1])
-                os.rename(next_file, "%s/%s" % (self.trans_d_dir, new_name))
+                shutil.move(next_file, "%s/%s" % (self.trans_d_dir, new_name))
 
         if save_tmp:
             temp_files = dirs[0]
@@ -77,7 +78,7 @@ class SeqTools():
                 os.mkdir("%s/temp_files" % self.trans_d_dir)
 
             for next_file in files:
-                os.rename("%s/%s" % (temp_files, next_file), "%s/temp_files/%s" % (self.trans_d_dir, next_file))
+                shutil.move("%s/%s" % (temp_files, next_file), "%s/temp_files/%s" % (self.trans_d_dir, next_file))
 
         print("\nTransDecoder done, output files in %s" % self.trans_d_dir)
         os.chdir(cwd)

@@ -211,5 +211,6 @@ for block in blocks:
             Popen("partitionfinder --force-restart ./", shell=True).wait()
         else:
             Popen("partitionfinder ./", shell=True).wait()
+        os.chdir(csv_dir)
 
-print("Job complete, it ran in %s" % MyFuncs.pretty_time(clock() - start_time))
+print("Job complete, it ran in %s" % MyFuncs.pretty_time(round(clock()) - start_time))
