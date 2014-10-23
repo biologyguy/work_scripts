@@ -43,11 +43,11 @@ if not in_args.no_docstrings:
 
 if not in_args.no_argparse:
     output += "import argparse\n\n"
-    output += "parser = argparse.ArgumentParser(prog='%s', description='')\n\n" % in_args.new_file.split("/")[-1].split(".")[0]
-    output += "parser.add_argument('positional_arg1', help='', action='store')\n"
-    output += "parser.add_argument('-t', '--true', help='', action='store_true', default=False)\n"
-    output += "parser.add_argument('-c', '--choice', help='', type=str, choices=['', ''], default=False)\n"
-    output += "parser.add_argument('-m', '--multi_arg', nargs='+', help='', default=[])\n"
+    output += "parser = argparse.ArgumentParser(prog=\"%s\", description=\"\")\n\n" % in_args.new_file.split("/")[-1].split(".")[0]
+    output += "parser.add_argument(\"positional_arg1\", help=\"\", action=\"store\")\n"
+    output += "parser.add_argument(\"-t\", \"--true\", help=\"\", action=\"store_true\", default=False)\n"
+    output += "parser.add_argument(\"-c\", \"--choice\", help=\"\", type=str, choices=[\"\", \"\"], default=False)\n"
+    output += "parser.add_argument(\"-m\", \"--multi_arg\", nargs=\"+\", help=\"\", default=[])\n"
     output += "\nin_args = parser.parse_args()\n\n"
 
 if not in_args.no_class:
@@ -78,3 +78,5 @@ if not in_args.no_main:
 
 with open(in_args.new_file, "w") as ifile:
     ifile.write(output)
+
+os.chmod(in_args.new_file, 0o755)
