@@ -214,5 +214,14 @@ if __name__ == '__main__':
 
     if in_args.blast:
         force = True if ("blast" in in_args.force) else False
+        ###first check to see if query file has multiple headers
+        query_headers=[]#build a list
+        for s_record in SeqIO.parse(in_args.blast,"fasta"): #loop through SeqIO generator
+            #if A in list, blow it up
+            if s_record.id in query_headers :
+                #shut down with sys.exit()
+                sys.exit("Shutting program down due to multiple headers in the query file with the same name:\n"+ s_record.id)
+            else:
+                query_headers.append(s_record.id)
         transome.blast(os.path.abspath(in_args.blast), force=force)
 
