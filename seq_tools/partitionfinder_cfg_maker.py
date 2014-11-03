@@ -26,7 +26,8 @@ def make_cfg(location, blocks, phylip_file):
 
     output += "## MODELS OF EVOLUTION for PartitionFinder: all | raxml | mrbayes | beast | <list> ##\n"
     output += "##              for PartitionFinderProtein: all_protein | <list> ##\n"
-    output += "models = all;\n\n"  # options all/some group pf models to test
+    models = "all" if in_args.type == "nucl" else "all_protein"
+    output += "models = %s;\n\n" % models  # options all/some group pf models to test
 
     output += "# MODEL SELECCTION: AIC | AICc | BIC #\n"
     output += "model_selection = AIC;\n\n"
@@ -53,13 +54,14 @@ def make_cfg(location, blocks, phylip_file):
 
 parser = argparse.ArgumentParser(prog="partitionfinder_cgf_maker", description="Creates a new .cgf configuration file for partitionfinder",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('blocks_file', help='Location of data_blocks.csv file that lists the alignments and how to break them up.', action='store')
+parser.add_argument("-i", '--blocks_file', help='Location of data_blocks.csv file that lists the alignments and how to break them up.', action='store')
 parser.add_argument("-ff", "--file_format", help="Print an example 'data_blocks.csv' file and exit.", action="store_true", default=False)
-parser.add_argument('-o', "--out_dir", help='Where would you like the output directories and files?', action='store', default=os.getcwd())
+parser.add_argument("-o", "--out_dir", help='Where would you like the output directories and files?', action='store', default=os.getcwd())
 parser.add_argument("-a", "--algorithm",
                     help="Specify which PartitionFinder algorithm you want to run. Greedy is most accurate, but to slow for more than 100 partitions, strict hierarchical clustering (hcluster) is fastest, but pretty terrible, and relaxed heirachiacal clustering (rcluster) is a good mix of speed and accuracy for > 100 partitions",
                     choices=["greedy", "rcluster", "hcluster"], default="greedy")
 parser.add_argument("-c", "--codon_pos", help="Break every data block up into the three different codon positions", action="store_true", default=False)
+parser.add_argument("-t", "--type", help="DNA or protein?", action="store", choices=["prot", "nucl"], default="nucl")
 parser.add_argument("-r", "--run_partfinder", help="If you want to call PartitionFinder right away, go for it!", action="store_true", default=False)
 parser.add_argument("-f", "--force", help="If you really want to force PartitionFinder to run a job that already ran...", action="store_true", default=False)
 
@@ -106,11 +108,14 @@ if in_args.file_format:
     quit()
 
 if not in_args.blocks_file:
-    sys.exit("Sorry, but you need to specify a data_blocks.csv file. Use -h for instructions.")
+    sys.exit("Sorry, but you need to specify a data_blocks.csv file with -i. Use -h for instructions.")
 
 blocks_file = os.path.abspath(in_args.blocks_file)
 if not os.path.exists(blocks_file):
     sys.exit("Can't find your data_blocks.csv file at %s" % blocks_file)
+
+if in_args.type == "prot" and in_args.codon_pos:
+    sys.exit("You have tried to subdevide a protein sequence up into codon positions with the -c flag.")
 
 with open(blocks_file, "r") as ifile:
     blocks = ifile.read()
@@ -207,10 +212,12 @@ for block in blocks:
     make_cfg(new_dir, seq_ranges, file_name)
     if in_args.run_partfinder:
         os.chdir(new_dir)
+        program = "partitionfinder" if in_args.type == "nucl" else "partitionfinderprotein"
+
         if in_args.force:
-            Popen("partitionfinder --force-restart ./", shell=True).wait()
+            Popen("%s --force-restart ./" % program, shell=True).wait()
         else:
-            Popen("partitionfinder ./", shell=True).wait()
+            Popen("%s ./" % program, shell=True).wait()
         os.chdir(csv_dir)
 
 print("Job complete, it ran in %s" % MyFuncs.pretty_time(round(clock()) - start_time))
