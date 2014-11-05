@@ -61,7 +61,7 @@ if not in_args.no_class:
     output += "        self.x = 1\n"
     output += "        return self.x\n\n\n"
 
-if not in_args.no_class:
+if not in_args.no_functions:
     for i in range(1, 3):
         output += "def def%s():\n" % i
         if not in_args.no_docstrings:
