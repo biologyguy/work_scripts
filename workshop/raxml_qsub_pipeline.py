@@ -29,7 +29,7 @@ def ml_trees(aln_file):
 
 
 def bootstrap(aln_file):
-    """Run standard RAxML on partitions"""
+    """Run bootstraps on partitions"""
     part_name = aln_file.split(".")[2]
     command = "/home/bondsr/bin/raxmlHPC-MPI-SSE3 -s %s/%s -n %s_%s -m GTRGAMMAI -f d -p 12345 -b 12345 -N 100 -w %s/bootstraps/;" % (alignments, aln_file, base_name, part_name, work_dir)
 
@@ -43,7 +43,7 @@ def bootstrap(aln_file):
 
 
 def best_tree(aln_file):
-    """Run standard RAxML on partitions"""
+    """Find best tree"""
     part_name = aln_file.split(".")[2]
     command = "/home/bondsr/bin/best_ML_tree.py %s/ML_trees/RAxML_info.%s_%s;" % (work_dir, base_name, part_name)
 
@@ -57,7 +57,7 @@ def best_tree(aln_file):
 
 
 def cons_tree(aln_file):
-    """Run standard RAxML on partitions"""
+    """Use RAxML to callculate a consensus tree"""
     part_name = aln_file.split(".")[2]
     command = "/home/bondsr/bin/raxmlHPC-PTHREADS-SSE3 -n %s_%s -m GTRGAMMAI -f b -p 12345 -T 2 -w %s/cons_trees/ -t %s/ML_trees/RAxML_best.%s_%s -z %s/bootstraps/RAxML_bootstrap.%s_%s;" % (base_name, part_name, work_dir, work_dir, base_name, part_name, work_dir, base_name, part_name)
 
