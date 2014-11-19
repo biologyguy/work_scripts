@@ -1,0 +1,32 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+# Created on: Nov 19 2014 
+
+"""
+Count the number of sequences contained in a sequence file
+"""
+
+import argparse
+import os
+import sys
+from Bio import SeqIO
+
+parser = argparse.ArgumentParser(prog="count_seqs", description="Count the number of sequences contained in a sequence file")
+
+parser.add_argument("seq_file", help="Which file do you want to count?", action="store")
+parser.add_argument("-f", "--file_format", help="Specify the input file format", action="store",
+                    choices=["fasta", "stockholm", "phylip", "nexus", "gb", "genbank"], default="fasta")
+
+in_args = parser.parse_args()
+
+
+if __name__ == '__main__':
+    seq_file = os.path.abspath(in_args.seq_file)
+    if not os.path.isfile(seq_file):
+        sys.exit("Sorry, the file you specified doesn't seem to exit")
+
+    with open(seq_file, "r") as ifile:
+        num_seqs = len(list(SeqIO.parse(ifile, in_args.file_format)))
+
+    print(num_seqs)
+
