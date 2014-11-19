@@ -13,7 +13,7 @@ from Bio import SeqIO
 
 parser = argparse.ArgumentParser(prog="count_seqs", description="Count the number of sequences contained in a sequence file")
 
-parser.add_argument("seq_file", help="Which file do you want to count?", action="store")
+parser.add_argument("seq_file", help="Which file(s) do you want to count?", nargs="+", action="store")
 parser.add_argument("-f", "--file_format", help="Specify the input file format", action="store",
                     choices=["fasta", "stockholm", "phylip", "nexus", "gb", "genbank"], default="fasta")
 
@@ -21,12 +21,16 @@ in_args = parser.parse_args()
 
 
 if __name__ == '__main__':
-    seq_file = os.path.abspath(in_args.seq_file)
-    if not os.path.isfile(seq_file):
-        sys.exit("Sorry, the file you specified doesn't seem to exit")
 
-    with open(seq_file, "r") as ifile:
-        num_seqs = len(list(SeqIO.parse(ifile, in_args.file_format)))
+    for seq_file in in_args.seq_file:
+        seq_file = os.path.abspath(seq_file)
+        if not os.path.isfile(seq_file):
+            sys.exit("Sorry, %s doesn't seem to exit" % seq_file)
 
-    print(num_seqs)
+        with open(seq_file, "r") as ifile:
+            num_seqs = len(list(SeqIO.parse(ifile, in_args.file_format)))
+
+        if len(in_args.seq_file) > 1:
+            print(seq_file)
+        print(num_seqs)
 
