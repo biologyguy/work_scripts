@@ -22,6 +22,8 @@ parser.add_argument('-na', '--no_argparse', help='Do not include argparse module
 parser.add_argument('-nc', '--no_class', help="Do not include a Class block", action='store_true', default=False)
 parser.add_argument('-nf', '--no_functions', help="Do not include def blocks block.", action='store_true', default=False)
 parser.add_argument('-nm', '--no_main', help="Do not include a __name__ = '__main__' block.", action='store_true', default=False)
+parser.add_argument('-ni', '--no_import', help="Do not import common packages", action='store_true', default=False)
+parser.add_argument('-t', '--time', help="Set up a runtime counter", action='store_true', default=False)
 
 
 parser.add_argument('-b', '--binary_loc', help='Specify the location of your python executable for the hashbang', action='store', default=sys.executable.split(".")[0])
@@ -40,6 +42,12 @@ output += "# Created on: %s %s %s \n\n" % (today.strftime("%b"), today.day, toda
 
 if not in_args.no_docstrings:
     output += '"""\nDESCRIPTION OF PROGRAM\n"""\n\n'
+
+if not in_args.no_import:
+    output += "import sys, os, re, shutil, MyFuncs\n"
+
+if in_args.time:
+    output += "import timeit\n"
 
 if not in_args.no_argparse:
     output += "import argparse\n\n"
@@ -73,8 +81,12 @@ if not in_args.no_functions:
 
 if not in_args.no_main:
     output += "if __name__ == '__main__':\n"
+    if in_args.time:
+        output += "timer = timeit.timeit()"
     output += "    print('Hello')\n\n"
-
+    if in_args.time:
+        output += "print('program executed in %s' % timeit.timeit() - timer)\n"
+    
 
 with open(in_args.new_file, "w") as ifile:
     ifile.write(output)
