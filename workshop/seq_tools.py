@@ -91,3 +91,43 @@ def map_features_prot2dna(prot_seqs, dna_seqs, quiet=False):  # Input as SeqIO.t
                 print("Warning: %s is in cDNA file, but not protein file" % seq_id)
 
     return new_seqs
+
+
+# Merge feature lists
+def combine_features(seqs1, seqs2, quiet=False):  # Input as SeqIO.to_dict objects.
+    # make sure that we're comparing apples to apples across all sequences (i.e., same alphabet)
+    reference_alphabet = sample(seqs1.items(), 1)[0][1].seq.alphabet
+    for seq_id in seqs1:
+        if type(seqs1[seq_id].seq.alphabet) != type(reference_alphabet):
+            print("You have mixed multiple alphabets into your sequences. Make sure everything is the same.")
+            print("\t%s in first set" % seq_id)
+            print("\tOffending alphabet: %s" % seqs1[seq_id].seq.alphabet)
+            print("\tReference alphabet: %s" % reference_alphabet)
+            sys.exit()
+
+    for seq_id in seqs2:
+        if type(seqs2[seq_id].seq.alphabet) != type(reference_alphabet):
+            print("You have mixed multiple alphabets into your sequences. Make sure everything is the same.")
+            print("\t%s in second set" % seq_id)
+            print("\tOffending alphabet: %s" % seqs2[seq_id].seq.alphabet)
+            print("\tReference alphabet: %s" % reference_alphabet)
+            sys.exit()
+
+    new_seqs = {}
+    for seq_id in seqs1:
+        if seq_id in seqs2:
+            for feature in seqs2[seq_id].features:
+                seqs1[seq_id].features.append(feature)
+        else:
+            if not quiet:
+                print("Warning: %s is only in the first set of sequences" % seq_id)
+
+        new_seqs[seq_id] = seqs1[seq_id]
+
+    for seq_id in seqs2:
+        if seq_id not in seqs1:
+            if not quiet:
+                print("Warning: %s is only in the first set of sequences" % seq_id)
+            new_seqs[seq_id] = seqs2[seq_id]
+
+    return new_seqs
