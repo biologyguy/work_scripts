@@ -32,7 +32,7 @@ with open(in_file, "r") as ifile:
         if in_args.strip_description:
             seq.description = ""
         seq.alphabet = IUPAC.protein
-        seq.seq = seq.seq.translate()
+        seq.seq = seq.seq.translate(to_stop=True)
         prot_seqs.append(seq)
 
 tmp_file = MyFuncs.TempFile()
