@@ -16,20 +16,36 @@ parser = argparse.ArgumentParser(prog="python_templates", description="Create ne
 parser.add_argument('new_file', help='Location and name of the new file you would like to create. Defaults to current working dir. All options are turned ON by default, and you can flag them off.',
                     action='store', default="%s/new_script.py" % os.getcwd())
 
-parser.add_argument('-ns', '--no_shebang', help="Do not include location to python binary", action='store_true', default=False)
-parser.add_argument('-nd', '--no_docstrings', help="Do not include docstrings", action='store_true', default=False)
-parser.add_argument('-na', '--no_argparse', help='Do not include argparse module', action='store_true', default=False)
-parser.add_argument('-nc', '--no_class', help="Do not include a Class block", action='store_true', default=False)
-parser.add_argument('-nf', '--no_functions', help="Do not include def blocks block.", action='store_true', default=False)
-parser.add_argument('-nm', '--no_main', help="Do not include a __name__ = '__main__' block.", action='store_true', default=False)
-parser.add_argument('-ni', '--no_import', help="Do not import common packages", action='store_true', default=False)
-parser.add_argument('-t', '--time', help="Set up a runtime counter", action='store_true', default=False)
+parser.add_argument('-ns', '--no_shebang', help="Do not include location to python binary", action='store_true')
+parser.add_argument('-nd', '--no_docstrings', help="Do not include docstrings", action='store_true')
+parser.add_argument('-na', '--no_argparse', help='Do not include argparse module', action='store_true')
+parser.add_argument('-nc', '--no_class', help="Do not include a Class block", action='store_true')
+parser.add_argument('-nf', '--no_functions', help="Do not include def blocks block.", action='store_true')
+parser.add_argument('-nm', '--no_main', help="Do not include a __name__ = '__main__' block.", action='store_true')
+parser.add_argument('-ni', '--no_import', help="Do not import common packages", action='store_true')
+parser.add_argument('-t', '--time', help="Set up a runtime counter", action='store_true')
 
-
+parser.add_argument('-am', '--args_in_main', help="Write argpase in the __main__ block", action="store_true")
 parser.add_argument('-b', '--binary_loc', help='Specify the location of your python executable for the hashbang', action='store', default=sys.executable.split(".")[0])
 parser.add_argument('-e', '--encoding', help='Specify the encoding for the file.', action='store', default="utf-8")
 
 in_args = parser.parse_args()
+
+
+def argparse_block(white_space=0):
+    out = ""
+    out += "%simport argparse\n\n" % "".rjust(white_space, " ")
+    out += "%sparser = argparse.ArgumentParser(prog=\"%s\", description=\"\")\n\n" % \
+           ("".rjust(white_space, " "), in_args.new_file.split("/")[-1].split(".")[0])
+    out += "%sparser.add_argument(\"positional_arg1\", help=\"\", action=\"store\")\n" % "".rjust(white_space, " ")
+    out += "%sparser.add_argument(\"-t\", \"--true\", help=\"\", action=\"store_true\", default=False)\n" \
+           % "".rjust(white_space, " ")
+    out += "%sparser.add_argument(\"-c\", \"--choice\", help=\"\", type=str, choices=[\"\", \"\"], default=False)\n" \
+           % "".rjust(white_space, " ")
+    out += "%sparser.add_argument(\"-m\", \"--multi_arg\", nargs=\"+\", help=\"\", default=[])\n\n" \
+           % "".rjust(white_space, " ")
+    out += "%sin_args = parser.parse_args()\n\n" % "".rjust(white_space, " ")
+    return out
 
 output = ""
 
@@ -49,14 +65,8 @@ if not in_args.no_import:
 if in_args.time:
     output += "import timeit\n"
 
-if not in_args.no_argparse:
-    output += "import argparse\n\n"
-    output += "parser = argparse.ArgumentParser(prog=\"%s\", description=\"\")\n\n" % in_args.new_file.split("/")[-1].split(".")[0]
-    output += "parser.add_argument(\"positional_arg1\", help=\"\", action=\"store\")\n"
-    output += "parser.add_argument(\"-t\", \"--true\", help=\"\", action=\"store_true\", default=False)\n"
-    output += "parser.add_argument(\"-c\", \"--choice\", help=\"\", type=str, choices=[\"\", \"\"], default=False)\n"
-    output += "parser.add_argument(\"-m\", \"--multi_arg\", nargs=\"+\", help=\"\", default=[])\n"
-    output += "\nin_args = parser.parse_args()\n\n"
+if not in_args.no_argparse and not in_args.args_in_main:
+    output += argparse_block()
 
 if not in_args.no_class:
     output += "\nclass NewClass():\n"
@@ -81,12 +91,17 @@ if not in_args.no_functions:
 
 if not in_args.no_main:
     output += "if __name__ == '__main__':\n"
+
+    if not in_args.no_argparse and in_args.args_in_main:
+        output += argparse_block(4)
+
     if in_args.time:
-        output += "timer = timeit.timeit()"
-    output += "    print('Hello')\n\n"
+        output += "    timer = timeit.timeit()"
+    output += "    print('Hello')\n"
     if in_args.time:
-        output += "print('program executed in %s' % timeit.timeit() - timer)\n"
-    
+        output += "    print('program executed in %s' % timeit.timeit() - timer)\n"
+
+output = output.strip()
 
 with open(in_args.new_file, "w") as ifile:
     ifile.write(output)
