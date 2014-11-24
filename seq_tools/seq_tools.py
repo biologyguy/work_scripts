@@ -5,7 +5,7 @@
 """
 Collection of functions that do funs stuff with sequences. Pull them into a script, or run as a commandline tool.
 """
-
+import pdb
 import sys
 import os
 import re
@@ -54,6 +54,31 @@ def clean_seq(sequence):  # fasta file or raw
 
 def concat_seqs(sequences):
     print("not implemented")
+
+
+def combine_files(file_paths, mix=False):  # Combine the sequences from a bunch of files into a single list
+    new_seq_list = []
+    dna_or_prot = None
+    for next_file in file_paths:
+        in_format = guess_format(next_file)
+        with open(os.path.abspath(next_file), "r") as ifile:
+            sequences = list(SeqIO.parse(ifile, in_format))
+            if not dna_or_prot:
+                dna_or_prot = guess_alphabet(str(sequences[0].seq))
+            for seq in sequences:
+                alpha = guess_alphabet(str(seq.seq))
+                if dna_or_prot != alpha and not mix:
+                    sys.exit("Error: It looks like you are trying to mix DNA and Protein files. If you really do want"
+                             "to do that, set mix=True")
+
+                if alpha == "nucl":
+                    seq.seq.alphabet = IUPAC.ambiguous_dna
+
+                if alpha == "prot":
+                    seq.seq.alphabet = IUPAC.protein
+                new_seq_list.append(seq)
+
+    return new_seq_list
 
 
 def guess_format(in_file):
@@ -178,8 +203,10 @@ if __name__ == '__main__':
     parser.add_argument('-fd2p', '--map_features_dna2prot', action='store', nargs=2)
     parser.add_argument('-fp2d', '--map_features_prot2dna', action='store', nargs=2)
     parser.add_argument('-cf', '--combine_features', action='store', nargs=2)
-
-    parser.add_argument('-p', '--params', help="Any arguments the given function needs, should be supplied here.", nargs="+", action='store')
+    parser.add_argument('-cl', '--combine_files', action='store', nargs="+", help="Arguments need to be supplied "
+                                                                                  "<format> <files ... > <True|False "
+                                                                                  "(for mix, optional)>")
+    parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
 
     in_args = parser.parse_args()
 
@@ -266,3 +293,19 @@ if __name__ == '__main__':
         for seq_id in new_seqs:
             new_seqs[seq_id].seq.alphabet = IUPAC.protein
             print(new_seqs[seq_id].format("gb"))
+
+    # Combine group of files into one
+    if in_args.combine_files:
+        if in_args.combine_files[-1].upper() == "TRUE":
+            mix = True
+            files = in_args.combine_files[1:-1]
+        elif in_args.combine_files[-1].upper() == "FALSE":
+            mix = False
+            files = in_args.combine_files[1:-1]
+        else:
+            mix = False
+            files = in_args.combine_files[1:]
+
+        new_seqs = combine_files(files, mix)
+        for seq in new_seqs:
+            print(seq.format(in_args.combine_files[0]))
