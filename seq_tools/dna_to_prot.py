@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Created on: Nov 5 2014 
 
@@ -13,13 +13,18 @@ import MyFuncs
 from Bio import SeqIO
 from Bio.Alphabet import IUPAC
 
-parser = argparse.ArgumentParser(prog="dna_to_prot", description="Simple script that takes a DNA file and converts each to protein in reading frame #1")
+parser = argparse.ArgumentParser(prog="dna_to_prot", description="Simple script that takes a DNA file and converts "
+                                                                 "each to protein in reading frame #1")
 
 parser.add_argument("in_file", help="Location of DNA fasta file", action="store")
-parser.add_argument("-o", "--out_file", help="Send the protein seq to a new file. Otherwise it goes to std_out", action="store")
-parser.add_argument("-f", "--format", help="If I get motivated, I'll let the in and out format be something other than fasta", type=str, choices=["fasta"], default="fasta")
-parser.add_argument("-sd", "--strip_description", help="Clean up the crap stored in the description tag", action="store_true")
-parser.add_argument("-ow", "--over_write", help="Replace a file that already exists with new out file", action="store_true")
+parser.add_argument("-o", "--out_file", help="Send the protein seq to a new file. Otherwise it goes to std_out",
+                    action="store")
+parser.add_argument("-f", "--format", help="If I get motivated, I'll let the in and out format be something other "
+                                           "than fasta", type=str, choices=["fasta"], default="fasta")
+parser.add_argument("-sd", "--strip_description", help="Clean up the crap stored in the description tag",
+                    action="store_true")
+parser.add_argument("-ow", "--over_write", help="Replace a file that already exists with new out file",
+                    action="store_true")
 
 in_args = parser.parse_args()
 

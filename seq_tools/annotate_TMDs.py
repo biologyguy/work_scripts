@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Created on: Nov 20 2014 
 
@@ -84,7 +84,8 @@ class AnnoTMD():
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(prog="annotate_TMDs.py", description="Identify all the transmembrane domains in a fasta file, and send the output somewhere")
+    parser = argparse.ArgumentParser(prog="annotate_TMDs.py", description="Identify all the transmembrane domains in "
+                                                                          "a fasta file, and send the output somewhere")
 
     parser.add_argument("in_file", help="Location of DNA or protein fasta file", action="store")
     parser.add_argument("out_dir", help="Where do you want the new genbank files sent", action="store")

@@ -1,12 +1,15 @@
 #!/usr/bin/python3
-from Bio import SeqIO, AlignIO, Seq
+from Bio import SeqIO
 import argparse
 
-parser = argparse.ArgumentParser(prog="Remove Repeats", description="Strip out replicate sequences from a fasta file and output to a new fasta file. Search on ID, sequence, or both",
+parser = argparse.ArgumentParser(prog="Remove Repeats", description="Strip out replicate sequences from a fasta file "
+                                                                    "and output to a new fasta file. Search on ID, "
+                                                                    "sequence, or both",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('input', help='Location of input fasta file', action='store')
 parser.add_argument('output', help='Location for output fasta file', action='store')
-parser.add_argument('-s', '--search', help='Specify if you want to remove duplicate IDs, sequences, or both', choices=["id", "seq", "both"], action='store', default="id")
+parser.add_argument('-s', '--search', help='Specify if you want to remove duplicate IDs, sequences, or both',
+                    choices=["id", "seq", "both"], action='store', default="id")
 
 in_args = parser.parse_args()
 
