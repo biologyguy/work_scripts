@@ -1,17 +1,23 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import requests
 from bs4 import BeautifulSoup
 import argparse
 import os
 from sys import stdout
 
-parser = argparse.ArgumentParser(prog="ensembl_scraper", description="Search EnsemblMetazoa for a all genes returned from a search")
+parser = argparse.ArgumentParser(prog="ensembl_scraper",
+                                 description="Search EnsemblMetazoa for a all genes returned from a search")
 parser.add_argument('search_term', help='What would you like to search for?', action='store')
-parser.add_argument('-o', '--outfile', help='Send the results to a file, instead of StdOut', action="store", default="%s/ensemble_ids.txt" % os.getcwd())
+parser.add_argument('-o', '--outfile', help='Send the results to a file, instead of StdOut',
+                    action="store", default="%s/ensemble_ids.txt" % os.getcwd())
 
 in_args = parser.parse_args()
 
 # Run the search, and figure out how many pages of results are returned
-url = "http://metazoa.ensembl.org/Multi/Search/Results?q=%s;species=all;collection=all;site=ensemblunit" % (in_args.search_term)
+url = "http://metazoa.ensembl.org/Multi/Search/Results?q=%s;species=all;collection=all;site=ensemblunit"\
+      % (in_args.search_term)
 content = requests.get(url).text
 
 soup = BeautifulSoup(content)
@@ -31,7 +37,8 @@ for page_num in range(max_page):
     stdout.write("\rCollecting data from results page %s" % (page_num + 1),)
     stdout.flush()
 
-    url = "http://metazoa.ensembl.org/Multi/Search/Results?page=%s;q=%s;species=all;collection=all;site=ensemblunit" % (page_num + 1, in_args.search_term)
+    url = "http://metazoa.ensembl.org/Multi/Search/Results?page=%s;q=%s;species=all;collection=all;site=ensemblunit"\
+          % (page_num + 1, in_args.search_term)
     content = requests.get(url).text
 
     soup = BeautifulSoup(content)

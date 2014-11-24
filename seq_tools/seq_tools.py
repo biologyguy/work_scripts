@@ -31,7 +31,8 @@ def guess_alphabet(sequence):  # Can be fasta file or raw, does not handle ambig
     sequence = clean_seq(sequence)
     sequence = re.sub("[NX]", "", sequence)
 
-    percent_dna = float(sequence.count("A") + sequence.count("G") + sequence.count("T") + sequence.count("C")) / float(len(sequence))
+    percent_dna = float(sequence.count("A") + sequence.count("G") +
+                        sequence.count("T") + sequence.count("C")) / float(len(sequence))
     if percent_dna > 0.95:
         return "nucl"
     else:

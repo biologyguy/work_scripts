@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 from MyFuncs import TempFile, TempDir, run_multicore_function
 from Bio import SeqIO
 from subprocess import Popen, PIPE
@@ -19,8 +19,8 @@ class Prosite():
         self.outfile = ""
 
     def run_prosite(self, client_path):
-        with open(self.tmp_file.file, "w") as ofile:
-            ofile.write(str(self.sequence.seq))
+        with open(self.tmp_file.file, "w") as out_file:
+            out_file.write(str(self.sequence.seq))
 
         output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 %s"
                        % (client_path, self.tmp_dir.dir, self.sequence.id, self.tmp_file.file), shell=True,
@@ -28,8 +28,8 @@ class Prosite():
 
         self.job_id = output.split("\n")[0]
 
-        with open("%s/%s.out.txt" % (self.tmp_dir.dir, self.sequence.id), "r") as ifile:
-            self.outfile = ifile.read()
+        with open("%s/%s.out.txt" % (self.tmp_dir.dir, self.sequence.id), "r") as in_file:
+            self.outfile = in_file.read()
 
         for feature in self.outfile.split(">")[1:]:
             feat_type = re.match('EMBOSS_001 : (.*)', feature)
@@ -46,15 +46,15 @@ class Prosite():
     def save_prosite_file(self, out_path):
         today = datetime.date.today()
         today = "%s %s %s" % (today.strftime("%b"), today.day, today.year)
-        with open(out_path, "w") as ofile:
-            ofile.write("# Job ID: %s\t%s\n%s" % (self.job_id, today, self.outfile))
+        with open(out_path, "w") as out_file:
+            out_file.write("# Job ID: %s\t%s\n%s" % (self.job_id, today, self.outfile))
 
 
 def run_interproscan(sequence, interpro_output_dir):  # This had not been fully implemented...
     tmp_file = TempFile()
     sequence.id = sequence.id
-    with open(tmp_file.file, "w") as ofile:
-        ofile.write(str(sequence.seq))
+    with open(tmp_file.file, "w") as out_file:
+        out_file.write(str(sequence.seq))
 
     output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 --service interpro %s"
                    % (prosite_scan_client, interpro_output_dir, sequence.id, tmp_file.file), shell=True,
@@ -62,11 +62,11 @@ def run_interproscan(sequence, interpro_output_dir):  # This had not been fully 
 
     project_id = output.split("\n")[0]
 
-    with open("%s/%s.tsv.txt" % (interpro_output_dir, sequence.id), "r") as ifile:
-        content = ifile.read()
+    with open("%s/%s.tsv.txt" % (interpro_output_dir, sequence.id), "r") as in_file:
+        content = in_file.read()
 
-    with open("%s/%s.tsv.txt" % (interpro_output_dir, sequence.id), "w") as ofile:
-        ofile.write("# Job ID: %s\n%s" % (project_id, content))
+    with open("%s/%s.tsv.txt" % (interpro_output_dir, sequence.id), "w") as out_file:
+        out_file.write("# Job ID: %s\n%s" % (project_id, content))
 
     remove("%s/%s.gff.txt" % (interpro_output_dir, sequence.id))
     remove("%s/%s.htmltarball.html.tar.gz" % (interpro_output_dir, sequence.id))
@@ -104,8 +104,8 @@ if __name__ == '__main__':
         prosite = Prosite(sequence)
         sequence = prosite.run_prosite(prosite_scan_client)
         with lock:
-            with open(gb_file, "a") as ofile:
-                SeqIO.write(sequence, ofile, "gb")
+            with open(gb_file, "a") as out_file:
+                SeqIO.write(sequence, out_file, "gb")
 
     with open("%s" % fasta_file, "r") as ifile:
         sequences = list(SeqIO.parse(ifile, 'fasta'))

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 from multiprocessing import Process, cpu_count
 from subprocess import Popen
@@ -10,7 +10,7 @@ from math import floor
 import os
 
 
-#might be nice to change this to a class that tracks the length of the last print, so it can be cleared compeletely when \r is called
+# might be nice to change this to a class that tracks length of last print, so it can be fully cleared when \r is called
 def dynamic_print(output):
     stdout.write("\r%s\r%s" % (" " * 100, output),)
     stdout.flush()
@@ -42,8 +42,8 @@ def pretty_time(seconds):
 
 
 def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False):
-        #fun little peice of abstraction here... directly pass in a function that is going to be looped over, and fork those 
-        #loops onto independant processors. Any arguments the function needs must be provided as a list.
+        # fun little piece of abstraction here... directly pass in a function that is going to be looped over, and
+        # fork those loops onto independent processors. Any arguments the function needs must be provided as a list.
         cpus = cpu_count()
         if max_processes == 0:
             if cpus > 7:
@@ -65,7 +65,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
         counter = 0
         if not quiet:
             print("Running function %s() on %s cores" % (function.__name__, max_processes))
-        #fire up the multi-core!!
+        # fire up the multi-core!!
         if not quiet:
             dynamic_print("\tJob 0 of %s" % len(iterable))
     
@@ -74,13 +74,14 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                 next_iter = iterable[next_iter]
             while 1:     # Only fork a new process when there is a free processor.
                 if running_processes < max_processes:
-                    #Start new process
+                    # Start new process
                     if not quiet:
                         dynamic_print("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
 
                     if func_args:
                         if not isinstance(func_args, list):
-                            exit("Error in run_multicore_function(): The arguments passed into the multithread function must be provided as a list")
+                            exit("Error in run_multicore_function(): The arguments passed into the multi-thread "
+                                 "function must be provided as a list")
                         p = Process(target=function, args=(next_iter, func_args))
 
                     else:
@@ -91,7 +92,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                     counter += 1
                     break
                 else:
-                    #processor wait loop
+                    # processor wait loop
                     while 1:
                         for i in range(len(child_list)):
                             if child_list[i].is_alive():
@@ -108,7 +109,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                         if running_processes < max_processes:
                             break
 
-        #wait for remaining processes to complete --> this is the same code as the processor wait loop above
+        # wait for remaining processes to complete --> this is the same code as the processor wait loop above
         if not quiet:
             dynamic_print("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
 
@@ -123,11 +124,12 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
             if (start_time + elapsed) < round(clock()):
                 elapsed = round(clock()) - start_time
                 if not quiet:
-                    dynamic_print("\t%s total jobs (%s, %s jobs remaining)" % (len(iterable), pretty_time(elapsed), len(child_list)))
+                    dynamic_print("\t%s total jobs (%s, %s jobs remaining)" % (len(iterable), pretty_time(elapsed),
+                                                                               len(child_list)))
             
         if not quiet:
             print(" --> DONE\n")
-        #func_args = []  # This may be necessary because of weirdness in assignment of incoming arguments
+        # func_args = []  # This may be necessary because of weirdness in assignment of incoming arguments
         return        
 
 
@@ -135,7 +137,7 @@ class TempDir():
     def __init__(self, base="", save=False):
         self.save = save
         base = "%s_" % base if base != "" else ""
-        self.dir = "/Volumes/Zippy/tmp/%s%s" % (base, ''.join(choice(hexdigits) for n in range(10)))
+        self.dir = "/Volumes/Zippy/tmp/%s%s" % (base, ''.join(choice(hexdigits) for _ in range(10)))
         Popen("mkdir %s" % self.dir, shell=True).wait()
     
     def __str__(self):
@@ -157,8 +159,8 @@ class TempFile():
         Popen("touch %s" % self.file, shell=True).wait()
 
     def _make_file(self):
-        file = "/Volumes/Zippy/tmp/%s%s.tmp" % (self.base, ''.join(choice(hexdigits) for n in range(10)))
-        return file
+        new_file = "/Volumes/Zippy/tmp/%s%s.tmp" % (self.base, ''.join(choice(hexdigits) for _ in range(10)))
+        return new_file
 
     def __str__(self):
         return self.file
@@ -183,13 +185,13 @@ class SafetyValve():  # Use this class if you're afraid of an infinit loop
         
         self.state = ""
         
-    def step(self, message=""):  # step() is general, and doesn't take into consideration whether useful computation is on going
+    def step(self, message=""):  # step() is general, and doesn't care whether useful computation is on going
         self.global_reps -= 1
         self.counter += 1
         if self.global_reps == 0:
             exit("Error: You just popped your global_reps safety valve. %s" % message)
     
-    def test(self, state, message=""):  # test() lets you keep track of some variable 'state' so see if its value keeps changing
+    def test(self, state, message=""):  # test() keeps track of some variable 'state' to see if its value keeps changing
         if self.state == "%s" % state:
             self.state_reps -= 1
         else:
@@ -200,7 +202,7 @@ class SafetyValve():  # Use this class if you're afraid of an infinit loop
             exit("Error: You just popped your state_reps safety valve. %s" % message)
 
 
-#Pulled this function off of Stack Overflow -- posted by nosklo
+# Pulled this function off of Stack Overflow -- posted by nosklo
 def walklevel(some_dir, level=1):
     some_dir = some_dir.rstrip(os.path.sep)
     assert os.path.isdir(some_dir)

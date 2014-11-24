@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Created on: Oct 9 2014 
 
@@ -18,8 +18,10 @@ parser = argparse.ArgumentParser(prog='pull_seq_ends', description='')
 parser.add_argument('seq_file', help='FASTA file', action='store')
 parser.add_argument('amount', help='How much of the end of each sequence to you want', type=int, action='store')
 parser.add_argument('which_end', help='beginning of sequences, or end?', choices=['front', 'end'])
-parser.add_argument('in_format', help='What is the format of your sequence?', choices=['fasta', 'phylip', 'phylip-relaxed'], default='fasta')
-parser.add_argument('out_format', help='What format do you want output?', choices=['fasta', 'phylip', 'phylip-relaxed'], default='fasta')
+parser.add_argument('in_format', help='What is the format of your sequence?',
+                    choices=['fasta', 'phylip', 'phylip-relaxed'], default='fasta')
+parser.add_argument('out_format', help='What format do you want output?',
+                    choices=['fasta', 'phylip', 'phylip-relaxed'], default='fasta')
 parser.add_argument('-o', '--outfile', action='store')
 
 in_args = parser.parse_args()
