@@ -9,12 +9,12 @@ import pdb
 import sys
 import os
 import re
-from random import sample
+import string
+from random import sample, choice
 from math import ceil
 from Bio import SeqIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio import AlignIO
-from MyFuncs import TempFile
 
 
 def guess_alphabet(sequence):  # Can be fasta file or raw, does not handle ambigious dna
@@ -128,12 +128,11 @@ def map_features_dna2prot(dna_seqs, prot_seqs, quiet=False):  # Input as SeqIO.t
 
 
 # Apply DNA features to protein sequences
-def map_features_prot2dna(prot_seqs, dna_seqs, quiet=False):  # Input as SeqIO.to_dict objects.
+def map_features_prot2dna(prot_seqs, dna_seqs):  # Input as SeqIO.to_dict objects.
     _new_seqs = {}
     for _seq_id in prot_seqs:
         if _seq_id not in dna_seqs:
-            if not quiet:
-                print("Warning: %s is in protein file, but not cDNA file" % _seq_id)
+            print("Warning: %s is in protein file, but not cDNA file" % _seq_id, file=sys.stderr)
             continue
 
         _new_seqs[_seq_id] = dna_seqs[_seq_id]
@@ -146,31 +145,30 @@ def map_features_prot2dna(prot_seqs, dna_seqs, quiet=False):  # Input as SeqIO.t
 
     for _seq_id in dna_seqs:
         if _seq_id not in prot_seqs:
-            if not quiet:
-                print("Warning: %s is in cDNA file, but not protein file" % _seq_id)
+            print("Warning: %s is in cDNA file, but not protein file" % _seq_id, file=sys.stderr)
 
     return _new_seqs
 
 
 # Merge feature lists
-def combine_features(seqs1, seqs2, quiet=False):  # Input as SeqIO.to_dict objects.
+def combine_features(seqs1, seqs2):  # Input as SeqIO.to_dict objects.
     # make sure that we're comparing apples to apples across all sequences (i.e., same alphabet)
     reference_alphabet = sample(seqs1.items(), 1)[0][1].seq.alphabet
     for _seq_id in seqs1:
         if type(seqs1[_seq_id].seq.alphabet) != type(reference_alphabet):
-            print("You have mixed multiple alphabets into your sequences. Make sure everything is the same.")
-            print("\t%s in first set" % _seq_id)
-            print("\tOffending alphabet: %s" % seqs1[_seq_id].seq.alphabet)
-            print("\tReference alphabet: %s" % reference_alphabet)
-            sys.exit()
+            error_mes = "You have mixed multiple alphabets into your sequences. Make sure everything is the same.\n" \
+                        "\t%s in first set\n\tOffending alphabet: %s\n\tReference alphabet: %s" \
+                        % (_seq_id, seqs1[_seq_id].seq.alphabet, reference_alphabet)
+            print(error_mes, file=sys.stderr)
+            return False
 
     for _seq_id in seqs2:
         if type(seqs2[_seq_id].seq.alphabet) != type(reference_alphabet):
-            print("You have mixed multiple alphabets into your sequences. Make sure everything is the same.")
-            print("\t%s in second set" % _seq_id)
-            print("\tOffending alphabet: %s" % seqs2[_seq_id].seq.alphabet)
-            print("\tReference alphabet: %s" % reference_alphabet)
-            sys.exit()
+            error_mes = "You have mixed multiple alphabets into your sequences. Make sure everything is the same.\n" \
+                        "\t%s in first set\n\tOffending alphabet: %s\n\tReference alphabet: %s" \
+                        % (_seq_id, seqs2[_seq_id].seq.alphabet, reference_alphabet)
+            print(error_mes, file=sys.stderr)
+            return False
 
     _new_seqs = {}
     for _seq_id in seqs1:
@@ -178,24 +176,65 @@ def combine_features(seqs1, seqs2, quiet=False):  # Input as SeqIO.to_dict objec
             for feature in seqs2[_seq_id].features:
                 seqs1[_seq_id].features.append(feature)
         else:
-            if not quiet:
-                print("Warning: %s is only in the first set of sequences" % _seq_id)
+            print("Warning: %s is only in the first set of sequences" % _seq_id, file=sys.stderr)
 
         _new_seqs[_seq_id] = seqs1[_seq_id]
 
     for _seq_id in seqs2:
         if _seq_id not in seqs1:
-            if not quiet:
-                print("Warning: %s is only in the first set of sequences" % _seq_id)
+            print("Warning: %s is only in the first set of sequences" % _seq_id, file=sys.stderr)
             _new_seqs[_seq_id] = seqs2[_seq_id]
 
     return _new_seqs
 
 
-def print_format(sequences, file_format):
+def screw_formats(sequences, file_format):
+    return sequences.format(file_format)
 
-    for sequence in sequences:
-        print(sequence.format(file_format))
+
+def screw_formats_align(_alignments, out_format):
+    output = ""
+    if out_format == "phylipi":
+        if len(_alignments) > 1:
+            print("Warning: the input file contained more than one alignment, but phylip can only handle one. "
+                  "The topmost alignment is shown here.", file=sys.stderr)
+        _seqs = list(_alignments[0])
+        output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
+        max_id_length = 0
+        for _seq in _seqs:
+            max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
+
+        for _seq in _seqs:
+            _seq_id = _seq.id.ljust(max_id_length)
+            output += "%s %s\n" % (_seq_id, _seq.seq)
+    else:
+        for alignment in _alignments:
+            output += alignment.format(out_format)
+
+    return output
+
+
+def hash_seqeunce_ids(_sequences):
+    hash_list = []
+    seq_ids = []
+    for i in range(len(_sequences)):
+        new_hash = ""
+        seq_ids.append(_sequences[i].id)
+        while True:
+            new_hash = "".join([choice(string.ascii_letters + string.digits) for n in range(10)])
+            if new_hash in hash_list:
+                continue
+            else:
+                hash_list.append(new_hash)
+                break
+        _sequences[i].id = new_hash
+
+    hash_map = ""
+    for i in range(len(hash_list)):
+        hash_map += "%s,%s\n" % (hash_list[i], seq_ids[i])
+
+    hash_map = hash_map.strip()
+    return [hash_map, _sequences]
 
 
 if __name__ == '__main__':
@@ -207,39 +246,49 @@ if __name__ == '__main__':
 
     parser.add_argument('-ga', '--guess_alphabet', action='store')
     parser.add_argument('-gf', '--guess_format', action='store')
-    parser.add_argument('-cs', '--clean_seq', action='store')
-    parser.add_argument('-fd2p', '--map_features_dna2prot', action='store', nargs=2)
-    parser.add_argument('-fp2d', '--map_features_prot2dna', action='store', nargs=2)
-    parser.add_argument('-cf', '--combine_features', action='store', nargs=2)
-    parser.add_argument('-cl', '--combine_files', action='store', nargs="+", help="Arguments need to be supplied "
-                                                                                  "<format> <files ... > <True|False "
-                                                                                  "(for mix, optional)>")
-    parser.add_argument('-sf', '--screw_formats', action='store', nargs=2, help="Arguments: <in_file> <out_format>")
-    parser.add_argument('-sfa', '--screw_formats_align', action='store', nargs=2, help="Arguments: <in_file> <out_format>")
+    parser.add_argument('-cs', '--clean_seq', action='store', help="")
+    parser.add_argument('-fd2p', '--map_features_dna2prot', action='store', nargs=2,
+                        help="Arguments: <nucl_gb_file> <prot_file>")
+    parser.add_argument('-fp2d', '--map_features_prot2dna', action='store', nargs=2,
+                        help="Arguments: <prot_gb_file> <nucl_file>")
+    parser.add_argument('-cf', '--combine_features', action='store', nargs=2, help="Arguments: <seq_file1> <seq_file2>")
+    parser.add_argument('-cl', '--combine_files', action='store', nargs="+",
+                        help="Arguments: <format> <files ... > <True|False (for mixing formats; optional)>")
+    parser.add_argument('-sf', '--screw_formats', action='store', nargs=2,
+                        help="Arguments: <in_file> <out_format>")
+    parser.add_argument('-sfa', '--screw_formats_align', action='store', nargs=2,
+                        help="Arguments: <in_file> <out_format>")
+    parser.add_argument('-hsi', '--hash_seq_ids', action='store',
+                        help="Rename all the identifiers in a sequence list to a 10 character hash.")
 
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
 
     in_args = parser.parse_args()
 
+    # Hash sequence ids
+    if in_args.hash_seq_ids:
+        with open(os.path.abspath(in_args.hash_seq_ids), "r") as ifile:
+            print(os.path.abspath(in_args.hash_seq_ids))
+            seq_format = guess_format(in_args.hash_seq_ids)
+            seqs = list(SeqIO.parse(ifile, seq_format))
+            hashed = hash_seqeunce_ids(seqs)
+            print("# Hash table\n%s\n\n# Sequences\n" % hashed[0])
+            for seq in hashed[1]:
+                print(seq.format(seq_format))
+
     # Screw formats
     if in_args.screw_formats:
         with open(os.path.abspath(in_args.screw_formats[0]), "r") as ifile:
-            seqs = list(SeqIO.parse(ifile, guess_format(in_args.screw_formats[0])))
-
-        for seq in seqs:
-            print(seq.format(in_args.screw_formats[1]))
+            seqs = SeqIO.parse(ifile, guess_format(in_args.screw_formats[0]))
+            print(screw_formats(seqs, in_args.screw_formats[1]))
 
     # Screw formats align
     if in_args.screw_formats_align:
-        tmp_file = TempFile()
         with open(os.path.abspath(in_args.screw_formats_align[0]), "r") as ifile:
+            align_format = guess_format(in_args.screw_formats_align[0])
+            alignments = list(AlignIO.parse(ifile, align_format))
 
-            alignments = AlignIO.parse(ifile, guess_format(in_args.screw_formats_align[0]))
-            with open(tmp_file.file, "w") as ofile:
-                AlignIO.write(alignments, ofile, in_args.screw_formats_align[1])
-
-        with open(tmp_file.file, "r") as ifile:
-            print(ifile.read())
+        print(screw_formats_align(alignments, in_args.screw_formats_align[1]))
 
     # Guess alphabet
     if in_args.guess_alphabet:
