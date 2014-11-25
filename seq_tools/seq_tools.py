@@ -229,12 +229,39 @@ def hash_seqeunce_ids(_sequences):
                 break
         _sequences[i].id = new_hash
 
-    hash_map = ""
+    hash_map = []
     for i in range(len(hash_list)):
-        hash_map += "%s,%s\n" % (hash_list[i], seq_ids[i])
+        hash_map.append((hash_list[i], seq_ids[i]))
 
-    hash_map = hash_map.strip()
     return [hash_map, _sequences]
+
+
+def pull_recs(_arg1, _arg2):
+    if os.path.isfile(_arg1):
+        in_file = os.path.abspath(_arg1)
+        substring = _arg2
+
+    else:
+        in_file = os.path.abspath(_arg2)
+        substring = _arg1
+
+    output = []
+    for _seq in SeqIO.parse(in_file, guess_format(in_file)):
+        if _seq.description.find(substring) != -1:
+            output.append(_seq)
+
+    return output
+
+
+def _set_alphabet(_sequence):  # update sequence alphabet in place
+    alpha = guess_alphabet(str(_sequence))
+    if alpha == "nucl":
+        _sequence.alphabet = IUPAC.ambiguous_dna
+    elif alpha == "prot":
+        _sequence.alphabet = IUPAC.protein
+    else:
+        sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
+    return _sequence
 
 
 if __name__ == '__main__':
@@ -260,15 +287,29 @@ if __name__ == '__main__':
                         help="Arguments: <in_file> <out_format>")
     parser.add_argument('-hsi', '--hash_seq_ids', action='store',
                         help="Rename all the identifiers in a sequence list to a 10 character hash.")
+    parser.add_argument('-pr', '--pull_records', action='store', nargs=2,
+                        help="Get all the records with ids containing a given string")
 
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
+    parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
 
     in_args = parser.parse_args()
+
+    # Pull records
+    if in_args.pull_records:
+        arg1, arg2 = in_args.pull_records
+        records = pull_recs(arg1, arg2)
+        if in_args.format:
+            out_format = in_args.format
+        else:
+            out_format = "fasta"
+        for rec in records:
+            rec.seq = _set_alphabet(rec.seq)
+            print(rec.format(out_format))
 
     # Hash sequence ids
     if in_args.hash_seq_ids:
         with open(os.path.abspath(in_args.hash_seq_ids), "r") as ifile:
-            print(os.path.abspath(in_args.hash_seq_ids))
             seq_format = guess_format(in_args.hash_seq_ids)
             seqs = list(SeqIO.parse(ifile, seq_format))
             hashed = hash_seqeunce_ids(seqs)
