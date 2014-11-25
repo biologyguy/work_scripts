@@ -17,6 +17,17 @@ from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio import AlignIO
 
 
+def _set_alphabet(_sequence):  # update sequence alphabet in place
+    alpha = guess_alphabet(str(_sequence))
+    if alpha == "nucl":
+        _sequence.alphabet = IUPAC.ambiguous_dna
+    elif alpha == "prot":
+        _sequence.alphabet = IUPAC.protein
+    else:
+        sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
+    return _sequence
+
+
 def guess_alphabet(sequence):  # Can be fasta file or raw, does not handle ambigious dna
     if os.path.isfile(sequence):
         seq_format = guess_format(sequence)
@@ -253,15 +264,20 @@ def pull_recs(_arg1, _arg2):
     return output
 
 
-def _set_alphabet(_sequence):  # update sequence alphabet in place
-    alpha = guess_alphabet(str(_sequence))
-    if alpha == "nucl":
-        _sequence.alphabet = IUPAC.ambiguous_dna
-    elif alpha == "prot":
-        _sequence.alphabet = IUPAC.protein
-    else:
-        sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
-    return _sequence
+def pull_seq_ends(_sequences, amount, which_end):
+    seq_ends = []
+    for _seq in _sequences:
+        if which_end == 'front':
+            _seq.seq = _seq.seq[:amount]
+
+        elif which_end == "rear":
+            _seq.seq = _seq.seq[-1 * amount:]
+
+        else:
+            sys.exit("Error: you much pick 'front' or 'rear' as the third argument in pull_seq_ends.")
+        seq_ends.append(_seq)
+
+    return seq_ends
 
 
 if __name__ == '__main__':
@@ -289,20 +305,35 @@ if __name__ == '__main__':
                         help="Rename all the identifiers in a sequence list to a 10 character hash.")
     parser.add_argument('-pr', '--pull_records', action='store', nargs=2,
                         help="Get all the records with ids containing a given string")
+    parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=3,
+                        help="Get the ends (front or rear) of all sequences in a file."
+                             "Arguments: <file> <amount (int)> <front|rear>")
 
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
     parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
 
     in_args = parser.parse_args()
 
+    if in_args.format:
+        out_format = in_args.format
+    else:
+        out_format = "fasta"
+
+    # Pull sequence ends
+    if in_args.pull_record_ends:
+        path, amount, which_end = in_args.pull_record_ends
+        amount = int(amount)
+        with open(os.path.abspath(path), "r") as ifile:
+            sequences = list(SeqIO.parse(ifile, guess_format(path)))
+            new_seqs = pull_seq_ends(sequences, amount, which_end)
+            for seq in new_seqs:
+                seq.seq = _set_alphabet(seq.seq)
+                print(seq.format(out_format))
+
     # Pull records
     if in_args.pull_records:
         arg1, arg2 = in_args.pull_records
         records = pull_recs(arg1, arg2)
-        if in_args.format:
-            out_format = in_args.format
-        else:
-            out_format = "fasta"
         for rec in records:
             rec.seq = _set_alphabet(rec.seq)
             print(rec.format(out_format))
