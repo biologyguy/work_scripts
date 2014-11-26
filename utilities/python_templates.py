@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Created on: Oct 8 2014
 
@@ -11,9 +11,11 @@ import sys
 import os
 import datetime
 
-parser = argparse.ArgumentParser(prog="python_templates", description="Create new python files with some useful templated code pre-written")
+parser = argparse.ArgumentParser(prog="python_templates", description="Create new python files with some useful"
+                                                                      " templated code pre-written")
 
-parser.add_argument('new_file', help='Location and name of the new file you would like to create. Defaults to current working dir. All options are turned ON by default, and you can flag them off.',
+parser.add_argument('new_file', help='Location and name of the new file you would like to create. Defaults to current'
+                                     ' working dir. All options are turned ON by default, and you can flag them off.',
                     action='store', default="%s/new_script.py" % os.getcwd())
 
 parser.add_argument('-ns', '--no_shebang', help="Do not include location to python binary", action='store_true')
@@ -26,7 +28,8 @@ parser.add_argument('-ni', '--no_import', help="Do not import common packages", 
 parser.add_argument('-t', '--time', help="Set up a runtime counter", action='store_true')
 
 parser.add_argument('-am', '--args_in_main', help="Write argpase in the __main__ block", action="store_true")
-parser.add_argument('-b', '--binary_loc', help='Specify the location of your python executable for the hashbang', action='store', default=sys.executable.split(".")[0])
+parser.add_argument('-b', '--binary_loc', help='Specify the location of your python executable for the hashbang',
+                    action='store', default=sys.executable.split(".")[0])
 parser.add_argument('-e', '--encoding', help='Specify the encoding for the file.', action='store', default="utf-8")
 
 in_args = parser.parse_args()
@@ -35,7 +38,8 @@ in_args = parser.parse_args()
 def argparse_block(white_space=0):
     out = ""
     out += "%simport argparse\n\n" % "".rjust(white_space, " ")
-    out += "%sparser = argparse.ArgumentParser(prog=\"%s\", description=\"\")\n\n" % \
+    out += "%sparser = argparse.ArgumentParser(prog=\"%s\", description=\"\"), " \
+           "formatter_class=argparse.ArgumentDefaultsHelpFormatter\n\n" % \
            ("".rjust(white_space, " "), in_args.new_file.split("/")[-1].split(".")[0])
     out += "%sparser.add_argument(\"positional_arg1\", help=\"\", action=\"store\")\n" % "".rjust(white_space, " ")
     out += "%sparser.add_argument(\"-t\", \"--true\", help=\"\", action=\"store_true\", default=False)\n" \
