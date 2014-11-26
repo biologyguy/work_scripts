@@ -11,14 +11,16 @@ For some PartitionFinder references, see:   - Lanfear et al., 2012 doi: 10.1093/
 
 from Bio import AlignIO
 import argparse
-import os, sys, re
+import os
+import sys
+import re
 from subprocess import Popen
 from time import clock
 import MyFuncs
 import seq_tools
 
 
-def make_cfg(location, blocks, phylip_file):
+def make_cfg(location, _blocks, phylip_file):
     _output = "## ALIGNMENT FILE ##\n"
     _output += "alignment = %s_hashed.phy;\n\n" % phylip_file
 
@@ -36,7 +38,7 @@ def make_cfg(location, blocks, phylip_file):
     _output += "## DATA BLOCKS: see manual for how to define ##\n"
     _output += "[data_blocks]\n"
 
-    for _block in blocks:
+    for _block in _blocks:
         _block = _block.split(",")
         if in_args.codon_pos:
             for j in range(3):
@@ -53,18 +55,30 @@ def make_cfg(location, blocks, phylip_file):
 
     return
 
-parser = argparse.ArgumentParser(prog="partitionfinder_cgf_maker", description="Creates a new .cgf configuration file for partitionfinder",
+parser = argparse.ArgumentParser(prog="partitionfinder_cgf_maker",
+                                 description="Creates a new .cgf configuration file for partitionfinder",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("-i", '--blocks_file', help='Location of data_blocks.csv file that lists the alignments and how to break them up.', action='store')
-parser.add_argument("-ff", "--file_format", help="Print an example 'data_blocks.csv' file and exit.", action="store_true", default=False)
-parser.add_argument("-o", "--out_dir", help='Where would you like the output directories and files?', action='store', default=os.getcwd())
+parser.add_argument("-i", '--blocks_file',
+                    help='Location of data_blocks.csv file that lists the alignments and how to break them up.',
+                    action='store')
+parser.add_argument("-ff", "--file_format", help="Print an example 'data_blocks.csv' file and exit.",
+                    action="store_true", default=False)
+parser.add_argument("-o", "--out_dir", help='Where would you like the output directories and files?',
+                    action='store', default=os.getcwd())
 parser.add_argument("-a", "--algorithm",
-                    help="Specify which PartitionFinder algorithm you want to run. Greedy is most accurate, but to slow for more than 100 partitions, strict hierarchical clustering (hcluster) is fastest, but pretty terrible, and relaxed heirachiacal clustering (rcluster) is a good mix of speed and accuracy for > 100 partitions",
+                    help="Specify which PartitionFinder algorithm you want to run. Greedy is most accurate, but to "
+                         "slow for more than 100 partitions, strict hierarchical clustering (hcluster) is fastest, but "
+                         "pretty terrible, and relaxed heirachiacal clustering (rcluster) is a good mix of speed and "
+                         "accuracy for > 100 partitions",
                     choices=["greedy", "rcluster", "hcluster"], default="greedy")
-parser.add_argument("-c", "--codon_pos", help="Break every data block up into the three different codon positions", action="store_true", default=False)
-parser.add_argument("-t", "--type", help="DNA or protein?", action="store", choices=["prot", "nucl"], default="nucl")
-parser.add_argument("-r", "--run_partfinder", help="If you want to call PartitionFinder right away, go for it!", action="store_true", default=False)
-parser.add_argument("-f", "--force", help="If you really want to force PartitionFinder to run a job that already ran...", action="store_true", default=False)
+parser.add_argument("-c", "--codon_pos", help="Break every data block up into the three different codon positions",
+                    action="store_true", default=False)
+parser.add_argument("-t", "--type", help="DNA or protein?", action="store", choices=["prot", "nucl", "guess"],
+                    default="guess")
+parser.add_argument("-r", "--run_partfinder", help="If you want to call PartitionFinder right away, go for it!",
+                    action="store_true", default=False)
+parser.add_argument("-f", "--force", help="If you really want to force PartitionFinder to run a job that already ran.",
+                    action="store_true", default=False)
 
 in_args = parser.parse_args()
 
@@ -73,7 +87,8 @@ start_time = round(clock())
 if in_args.file_format:
     output = "# This is a comment and will be ignored\n"
     output += "Cnidaria_einsi.fa\t# alignment file name\n"
-    output += "N-term,1,171\t# block name and start-stop positions. Names must be unique to this set of blocks, and spaces will be replaced by underscores\n"
+    output += "N-term,1,171\t# block name and start-stop positions. Names must be unique to this set of blocks, and " \
+              "spaces will be replaced by underscores\n"
     output += "TMD1,172,237\n"
     output += "ECL1,238,585\n"
     output += "TMD2,586,651\n"
@@ -94,7 +109,8 @@ if in_args.file_format:
     output += "TMD5,895,966\n"
     output += "C-term,967,1170\n"
     output += "//\n"
-    output += "/path/to/Cnidaria_ginsi.fa\t# If the abs path is not defined, then the file must be in the same dir as this .csv file.\n"
+    output += "/path/to/Cnidaria_ginsi.fa\t# If the abs path is not defined, then the file must be in the same dir " \
+              "as this .csv file.\n"
     output += "N-term,1,174\n"
     output += "TMD3,175,240\n"
     output += "ECL3,241,573\n"
@@ -114,9 +130,6 @@ if not in_args.blocks_file:
 blocks_file = os.path.abspath(in_args.blocks_file)
 if not os.path.exists(blocks_file):
     sys.exit("Can't find your data_blocks.csv file at %s" % blocks_file)
-
-if in_args.type == "prot" and in_args.codon_pos:
-    sys.exit("You have tried to subdevide a protein sequence up into codon positions with the -c flag.")
 
 with open(blocks_file, "r") as ifile:
     blocks = ifile.read()
@@ -139,7 +152,14 @@ file_names = []
 for block in blocks:
     path = os.path.abspath(block.split("\n")[0])
     if not os.path.exists(path):
-        sys.exit("Sorry, but you have specified a path in in your data_blocks file that does not seem to exist:\n%s  not found." % path)
+        sys.exit("Sorry, but you have specified a path in in your data_blocks file that does not seem to exist:\n%s  "
+                 "not found." % path)
+
+    if in_args.type == "guess":
+        in_args.type = seq_tools.guess_alphabet(path)
+
+    if in_args.type == "prot" and in_args.codon_pos:
+        sys.exit("You have tried to subdevide a protein sequence up into codon positions with the -c flag.")
 
     file_name = path.split("/")[-1].split(".")[:-1]
     if file_name in file_names:
