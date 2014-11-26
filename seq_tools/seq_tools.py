@@ -46,18 +46,36 @@ def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Se
 # #################################################################################################################### #
 
 
-def guess_alphabet(sequence):  # Can be sequence file or raw, does not handle ambigious dna
-    _sequences = _sequence_list(sequence)
-    sequence = ""
+def rna2dna(_sequences):
+    _sequences = _sequence_list(_sequences)
+    _output = []
+    for _seq in _sequences:
+        _seq.seq = Seq(str(_seq.seq.back_transcribe()), alphabet=IUPAC.ambiguous_dna)
+        _output.append(_seq)
+    return _output
+
+
+def dna2rna(_sequences):
+    _sequences = _sequence_list(_sequences)
+    _output = []
+    for _seq in _sequences:
+        _seq.seq = Seq(str(_seq.seq.transcribe()), alphabet=IUPAC.ambiguous_rna)
+        _output.append(_seq)
+    return _output
+
+
+def guess_alphabet(_sequence):  # Can be sequence file or raw, does not handle ambigious dna
+    _sequences = _sequence_list(_sequence)
+    _sequence = ""
     for next_seq in _sequences:
-        if len(sequence) > 1000:
+        if len(_sequence) > 1000:
             break
-        sequence += str(next_seq.seq)
+        _sequence += str(next_seq.seq)
 
-    sequence = re.sub("[NX]", "", sequence)
+    _sequence = re.sub("[NX]", "", _sequence)
 
-    percent_dna = float(sequence.count("A") + sequence.count("G") +
-                        sequence.count("T") + sequence.count("C")) / float(len(sequence))
+    percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
+                        _sequence.count("C") + _sequence.count("U")) / float(len(_sequence))
     if percent_dna > 0.95:
         return "nucl"
     else:
@@ -377,7 +395,7 @@ def list_ids(_sequences):
         ids.append(_seq.id)
     return ids
 
-
+# ################################################# COMMAND LINE UI ################################################## #
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(prog="seq_tools.py", description="Commandline wrapper for all the fun functions in"
@@ -387,6 +405,8 @@ if __name__ == '__main__':
     parser.add_argument('-gf', '--guess_format', action='store')
     parser.add_argument('-cs', '--clean_seq', action='store', help="")
     parser.add_argument('-tr', '--translate', action='store', help="Convert coding sequences into amino acid sequences")
+    parser.add_argument('-d2r', '--transcribe', action='store', help="Convert DNA sequences to RNA")
+    parser.add_argument('-r2d', '--back_transcribe', action='store', help="Convert RNA sequences to DNA")
     parser.add_argument('-li', '--list_ids', action='store',
                         help="Output all the sequence identifiers in a file. Use -p to specify # columns to write")
     parser.add_argument('-ns', '--num_seqs', action='store',
@@ -423,6 +443,24 @@ if __name__ == '__main__':
         out_format = in_args.format
     else:
         out_format = "fasta"
+
+    # Transcribe
+    if in_args.transcribe:
+        sequences = in_args.transcribe
+        if guess_alphabet(sequences) != "nucl":
+            sys.exit("Error: You need to provide an unabmigious DNA sequence.")
+
+        for seq in dna2rna(sequences):
+            print(seq.format(out_format))
+
+    # Back Transcribe
+    if in_args.back_transcribe:
+        sequences = in_args.back_transcribe
+        if guess_alphabet(sequences) != "nucl":
+            sys.exit("Error: You need to provide an unabmigious DNA sequence.")
+
+        for seq in rna2dna(sequences):
+            print(seq.format(out_format))
 
     # List identifiers
     if in_args.list_ids:
