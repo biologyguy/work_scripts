@@ -15,40 +15,41 @@ import os, sys, re
 from subprocess import Popen
 from time import clock
 import MyFuncs
+import seq_tools
 
 
 def make_cfg(location, blocks, phylip_file):
-    output = "## ALIGNMENT FILE ##\n"
-    output += "alignment = %s.phy;\n\n" % phylip_file
+    _output = "## ALIGNMENT FILE ##\n"
+    _output += "alignment = %s_hashed.phy;\n\n" % phylip_file
 
-    output += "## BRANCHLENGTHS: linked | unlinked ##\n"
-    output += "branchlengths = linked;\n\n"  # options linked/unlinked
+    _output += "## BRANCHLENGTHS: linked | unlinked ##\n"
+    _output += "branchlengths = linked;\n\n"  # options linked/unlinked
 
-    output += "## MODELS OF EVOLUTION for PartitionFinder: all | raxml | mrbayes | beast | <list> ##\n"
-    output += "##              for PartitionFinderProtein: all_protein | <list> ##\n"
+    _output += "## MODELS OF EVOLUTION for PartitionFinder: all | raxml | mrbayes | beast | <list> ##\n"
+    _output += "##              for PartitionFinderProtein: all_protein | <list> ##\n"
     models = "all" if in_args.type == "nucl" else "all_protein"
-    output += "models = %s;\n\n" % models  # options all/some group pf models to test
+    _output += "models = %s;\n\n" % models  # options all/some group pf models to test
 
-    output += "# MODEL SELECCTION: AIC | AICc | BIC #\n"
-    output += "model_selection = AIC;\n\n"
+    _output += "# MODEL SELECCTION: AIC | AICc | BIC #\n"
+    _output += "model_selection = AIC;\n\n"
 
-    output += "## DATA BLOCKS: see manual for how to define ##\n"
-    output += "[data_blocks]\n"
+    _output += "## DATA BLOCKS: see manual for how to define ##\n"
+    _output += "[data_blocks]\n"
 
-    for block in blocks:
-        block = block.split(",")
+    for _block in blocks:
+        _block = _block.split(",")
         if in_args.codon_pos:
-            for i in range(3):
-                output += "%s_pos%s = %s-%s\\3;\n" % (block[0], i + 1, int(block[1]) + i, block[2])
+            for j in range(3):
+                _output += "%s_pos%s = %s-%s\\3;\n" % (_block[0], j + 1, int(_block[1]) + j, _block[2])
         else:
-            output += "%s = %s-%s;\n" % (block[0], block[1], block[2])
+            _output += "%s = %s-%s;\n" % (_block[0], _block[1], _block[2])
 
-    output += "\n## SCHEMES, search: all | greedy | rcluster | hcluster | user ##\n"
-    output += "[schemes]\n"
-    output += "search = %s;\n\n" % in_args.algorithm
+    _output += "\n## SCHEMES, search: all | greedy | rcluster | hcluster | user ##\n"
+    _output += "[schemes]\n"
+    _output += "search = %s;\n\n" % in_args.algorithm
 
     with open("%s/partition_finder.cfg" % location, "w") as cfg:
-        cfg.write(output)
+        cfg.write(_output)
 
     return
 
@@ -173,36 +174,27 @@ for block in blocks:
     if not os.path.exists(new_dir):
         os.mkdir(new_dir)
 
-    fasta = open(path, "r")
+    infile = open(path, "r")
     phylip = open("%s/%s.phy" % (new_dir, file_name), "w")
+    hashed_phylip = open("%s/%s_hashed.phy" % (new_dir, file_name), "w")
+    hash_map = open("%s/%s_hash_map.csv" % (new_dir, file_name), "w")
 
-    alignment = AlignIO.parse(fasta, "fasta")
-    AlignIO.write(alignment, phylip, "phylip-relaxed")
+    alignment = AlignIO.read(infile, seq_tools.guess_format(path))
 
-    fasta.close()
+    clean_alignment = seq_tools.screw_formats_align([alignment], "phylipi")
+    phylip.write(clean_alignment)
+
+    id_hashes = seq_tools.hash_seqeunce_ids(list(alignment))
+    for i in id_hashes[0]:
+        hash_map.write("%s,%s\n" % (i[0], i[1]))
+
+    alignment = seq_tools.screw_formats_align([alignment], "phylipi")
+    hashed_phylip.write(alignment)
+
+    infile.close()
     phylip.close()
-
-    # Need to fix the phylip file...
-    with open("%s/%s.phy" % (new_dir, file_name), "r") as ifile:
-        num_seqs, length = ifile.readline().strip().split(" ")
-        chunks = ifile.read().split("\n\n")
-        joined_seqs = []
-        for i in range(int(num_seqs)):
-            joined_seqs.append("")
-
-        for i in range(len(chunks)):
-            seqs = chunks[i].strip().split("\n")
-            for j in range(len(seqs)):
-                seq = seqs[j].strip()
-                seq = re.sub(r"([ATCG-]) ([ATCG-])", r"\1\2", seq)
-                joined_seqs[j] += seq
-
-        new_phylip = " %s %s\n" % (num_seqs, length)
-        for seq in joined_seqs:
-            new_phylip += "%s\n" % seq
-
-    with open("%s/%s.phy" % (new_dir, file_name), "w") as ofile:
-        ofile.write(new_phylip)
+    hashed_phylip.close()
+    hash_map.close()
 
     # Make cfg file
     seq_ranges = block.split("\n")[1:]
