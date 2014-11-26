@@ -16,15 +16,7 @@ from Bio import SeqIO, AlignIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.Seq import Seq
 from Bio.Alphabet import IUPAC
-
-
-def translate_cds(_sequences):
-    print("not implemented")
-
-
-def count_sequences(_sequences):
-    _sequences = _sequence_list(_sequences)
-    return len(_sequences)
+from Bio.Data.CodonTable import TranslationError
 
 
 # ################################################ INTERNAL FUNCTIONS ################################################ #
@@ -61,7 +53,7 @@ def guess_alphabet(sequence):  # Can be sequence file or raw, does not handle am
         if len(sequence) > 1000:
             break
         sequence += str(next_seq.seq)
-    sequence = concat_seqs(sequence)
+
     sequence = re.sub("[NX]", "", sequence)
 
     percent_dna = float(sequence.count("A") + sequence.count("G") +
@@ -72,9 +64,34 @@ def guess_alphabet(sequence):  # Can be sequence file or raw, does not handle am
         return "prot"
 
 
+def translate_cds(_sequences):
+    _output = []
+    _sequences = _sequence_list(_sequences)
+
+    for _seq in _sequences:
+        try:
+            _seq.seq = _seq.seq.translate(cds=True, to_stop=True)
+        except TranslationError as e1:
+            _seq.seq = Seq(str(_seq.seq)[:(len(str(_seq.seq)) - len(str(_seq.seq)) % 3)])
+            try:
+                _seq.seq = _seq.seq.translate()
+                print("Warning: %s is not a standard CDS\t-->\t%s" % (_seq.id, e1), file=sys.stderr)
+            except TranslationError as e2:
+                print("Error: %s failed to translate\t-->\t%s" % (_seq.id, e2), file=sys.stderr)
+
+        _seq.seq.alphabet = IUPAC.protein
+        _output.append(_seq)
+    return _output
+
+
 def concat_seqs(_sequences):
     _sequences = clean_seq(_sequences)
     return "".join(_sequences)
+
+
+def count_sequences(_sequences):
+    _sequences = _sequence_list(_sequences)
+    return len(_sequences)
 
 
 def clean_seq(sequence):  # from file or raw
@@ -361,6 +378,7 @@ if __name__ == '__main__':
     parser.add_argument('-ga', '--guess_alphabet', action='store')
     parser.add_argument('-gf', '--guess_format', action='store')
     parser.add_argument('-cs', '--clean_seq', action='store', help="")
+    parser.add_argument('-tr', '--translate', action='store', help="Convert coding sequences into amino acid sequences")
     parser.add_argument('-ns', '--num_seqs', action='store',
                         help="Counts how many sequences are present in an input file")
     parser.add_argument('-cts', '--concat_seqs', action='store',
@@ -395,6 +413,15 @@ if __name__ == '__main__':
         out_format = in_args.format
     else:
         out_format = "fasta"
+
+    # Translate CDS
+    if in_args.translate:
+        if guess_alphabet(in_args.translate) != "nucl":
+            sys.exit("Error: you need to supply DNA or RNA sequences to translate")
+        proteins = translate_cds(in_args.translate)
+
+        for protein in proteins:
+            print("%s\n" % protein.format(out_format))
 
     # Concatenate sequences
     if in_args.concat_seqs:
