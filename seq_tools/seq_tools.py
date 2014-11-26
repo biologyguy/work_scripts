@@ -12,17 +12,19 @@ import re
 import string
 from random import sample, choice
 from math import ceil
-from Bio import SeqIO
+from Bio import SeqIO, AlignIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
-from Bio import AlignIO
-
-
-def concat_seqs(_sequences):
-    print("not implemented")
+from Bio.Seq import Seq
+from Bio.Alphabet import IUPAC
 
 
 def translate_cds(_sequences):
     print("not implemented")
+
+
+def count_sequences(_sequences):
+    _sequences = _sequence_list(_sequences)
+    return len(_sequences)
 
 
 # ################################################ INTERNAL FUNCTIONS ################################################ #
@@ -35,23 +37,31 @@ def _set_alphabet(_sequence):  # update sequence alphabet in place
     else:
         sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
     return _sequence
-# #################################################################################################################### #
 
 
-def guess_alphabet(sequence):  # Can be sequence file or raw, does not handle ambigious dna
+def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq object
     if os.path.isfile(sequence):
         _seq_format = guess_format(sequence)
         if not _seq_format:
             sys.exit("Error: could not determine the format of your input sequence file.")
         with open(sequence, "r") as infile:
-            _sequences = SeqIO.parse(infile, _seq_format)
-            sequence = ""
-            for next_seq in _sequences:
-                if len(sequence) > 1000:
-                    break
-                sequence += str(next_seq.seq)
+            _sequences = list(SeqIO.parse(infile, _seq_format))
+    else:
+        # dna_or_prot = IUPAC.protein if guess_alphabet(sequence) == "prot" else IUPAC.ambiguous_dna
+        _sequences = [Seq(sequence)]
 
-    sequence = clean_seq(sequence)
+    return _sequences
+# #################################################################################################################### #
+
+
+def guess_alphabet(sequence):  # Can be sequence file or raw, does not handle ambigious dna
+    _sequences = _sequence_list(sequence)
+    sequence = ""
+    for next_seq in _sequences:
+        if len(sequence) > 1000:
+            break
+        sequence += str(next_seq.seq)
+    sequence = concat_seqs(sequence)
     sequence = re.sub("[NX]", "", sequence)
 
     percent_dna = float(sequence.count("A") + sequence.count("G") +
@@ -62,17 +72,22 @@ def guess_alphabet(sequence):  # Can be sequence file or raw, does not handle am
         return "prot"
 
 
-def clean_seq(sequence):  # fasta file or raw
-    """remove fasta headers, numbers, and whitespace from sequence string"""
-    if os.path.isfile(sequence):
-        with open(sequence, "r") as infile:
-            sequence = SeqIO.read(infile, "fasta")
-            sequence = str(sequence.seq)
+def concat_seqs(_sequences):
+    _sequences = clean_seq(_sequences)
+    return "".join(_sequences)
 
-    sequence = re.sub(">.*", "", sequence)
-    sequence = re.sub("[0-9\s\-\*]", "", sequence)
-    sequence = sequence.upper()
-    return sequence
+
+def clean_seq(sequence):  # from file or raw
+    """remove fasta headers, numbers, and whitespace from sequence strings"""
+    _sequences = _sequence_list(sequence)
+    _output = []
+    for _seq in _sequences:
+        _seq = re.sub(">.*", "", str(_seq.seq))
+        _seq = re.sub("[0-9\s\-\*]", "", _seq)
+        _seq = _seq.upper()
+        _output.append(_seq)
+
+    return _output  # returns a list of sequences in string format
 
 
 def combine_files(file_paths, mix=False):  # Combine the sequences from a bunch of files into a single list
@@ -340,14 +355,16 @@ def find_repeats(_sequences):
 
 if __name__ == '__main__':
     import argparse
-    from Bio.Alphabet import IUPAC
-
     parser = argparse.ArgumentParser(prog="seq_tools.py", description="Commandline wrapper for all the fun functions in"
                                                                       "this file. Play with your sequences!")
 
     parser.add_argument('-ga', '--guess_alphabet', action='store')
     parser.add_argument('-gf', '--guess_format', action='store')
     parser.add_argument('-cs', '--clean_seq', action='store', help="")
+    parser.add_argument('-ns', '--num_seqs', action='store',
+                        help="Counts how many sequences are present in an input file")
+    parser.add_argument('-cts', '--concat_seqs', action='store',
+                        help="Concatenate a bunch of sequences into a single solid string.")
     parser.add_argument('-fd2p', '--map_features_dna2prot', action='store', nargs=2,
                         help="Arguments: <nucl_gb_file> <prot_file>")
     parser.add_argument('-fp2d', '--map_features_prot2dna', action='store', nargs=2,
@@ -378,6 +395,14 @@ if __name__ == '__main__':
         out_format = in_args.format
     else:
         out_format = "fasta"
+
+    # Concatenate sequences
+    if in_args.concat_seqs:
+        print(concat_seqs(in_args.concat_seqs))
+
+    # Count number of sequences in a file
+    if in_args.num_seqs:
+        print(count_sequences(in_args.num_seqs))
 
     # Find repeat sequences or ids
     if in_args.find_repeats:
@@ -465,7 +490,11 @@ if __name__ == '__main__':
 
     # Clean Seq
     if in_args.clean_seq:
-        print(clean_seq(in_args.clean_seq))
+        seqs = clean_seq(in_args.clean_seq)
+        output = ""
+        for seq in seqs:
+            output += "%s\n\n" % seq
+        print(output.strip())
 
     # Guess format
     if in_args.guess_format:
