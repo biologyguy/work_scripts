@@ -370,6 +370,14 @@ def find_repeats(_sequences):
     return [unique_seqs, repeat_ids, repeat_seqs]
 
 
+def list_ids(_sequences):
+    _sequences = _sequence_list(_sequences)
+    ids = []
+    for _seq in _sequences:
+        ids.append(_seq.id)
+    return ids
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(prog="seq_tools.py", description="Commandline wrapper for all the fun functions in"
@@ -379,6 +387,8 @@ if __name__ == '__main__':
     parser.add_argument('-gf', '--guess_format', action='store')
     parser.add_argument('-cs', '--clean_seq', action='store', help="")
     parser.add_argument('-tr', '--translate', action='store', help="Convert coding sequences into amino acid sequences")
+    parser.add_argument('-li', '--list_ids', action='store',
+                        help="Output all the sequence identifiers in a file. Use -p to specify # columns to write")
     parser.add_argument('-ns', '--num_seqs', action='store',
                         help="Counts how many sequences are present in an input file")
     parser.add_argument('-cts', '--concat_seqs', action='store',
@@ -413,6 +423,21 @@ if __name__ == '__main__':
         out_format = in_args.format
     else:
         out_format = "fasta"
+
+    # List identifiers
+    if in_args.list_ids:
+        if in_args.params:
+            columns = int(in_args.params[0])
+        else:
+            columns = 1
+        output = ""
+        counter = 1
+        for id in list_ids(in_args.list_ids):
+            output += "%s\t" % id
+            if counter % columns == 0:
+                output = "%s\n" % output.strip()
+            counter += 1
+        print(output.strip())
 
     # Translate CDS
     if in_args.translate:
