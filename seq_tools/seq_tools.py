@@ -17,6 +17,15 @@ from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio import AlignIO
 
 
+def concat_seqs(_sequences):
+    print("not implemented")
+
+
+def translate_cds(_sequences):
+    print("not implemented")
+
+
+# ################################################ INTERNAL FUNCTIONS ################################################ #
 def _set_alphabet(_sequence):  # update sequence alphabet in place
     alpha = guess_alphabet(str(_sequence))
     if alpha == "nucl":
@@ -26,17 +35,18 @@ def _set_alphabet(_sequence):  # update sequence alphabet in place
     else:
         sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
     return _sequence
+# #################################################################################################################### #
 
 
-def guess_alphabet(sequence):  # Can be fasta file or raw, does not handle ambigious dna
+def guess_alphabet(sequence):  # Can be sequence file or raw, does not handle ambigious dna
     if os.path.isfile(sequence):
-        seq_format = guess_format(sequence)
-        if not seq_format:
+        _seq_format = guess_format(sequence)
+        if not _seq_format:
             sys.exit("Error: could not determine the format of your input sequence file.")
         with open(sequence, "r") as infile:
-            sequences = SeqIO.parse(infile, seq_format)
+            _sequences = SeqIO.parse(infile, _seq_format)
             sequence = ""
-            for next_seq in sequences:
+            for next_seq in _sequences:
                 if len(sequence) > 1000:
                     break
                 sequence += str(next_seq.seq)
@@ -65,20 +75,16 @@ def clean_seq(sequence):  # fasta file or raw
     return sequence
 
 
-def concat_seqs(sequences):
-    print("not implemented")
-
-
 def combine_files(file_paths, mix=False):  # Combine the sequences from a bunch of files into a single list
     new_seq_list = []
     dna_or_prot = None
     for next_file in file_paths:
         in_format = guess_format(next_file)
         with open(os.path.abspath(next_file), "r") as infile:
-            sequences = list(SeqIO.parse(infile, in_format))
+            _sequences = list(SeqIO.parse(infile, in_format))
             if not dna_or_prot:
-                dna_or_prot = guess_alphabet(str(sequences[0].seq))
-            for next_seq in sequences:
+                dna_or_prot = guess_alphabet(str(_sequences[0].seq))
+            for next_seq in _sequences:
                 alpha = guess_alphabet(str(next_seq.seq))
                 if dna_or_prot != alpha and not mix:
                     sys.exit("Error: It looks like you are trying to mix DNA and Protein files. If you really do want"
@@ -199,30 +205,30 @@ def combine_features(seqs1, seqs2):  # Input as SeqIO.to_dict objects.
     return _new_seqs
 
 
-def screw_formats(sequences, file_format):
-    return sequences.format(file_format)
+def screw_formats(_sequences, file_format):
+    return _sequences.format(file_format)
 
 
-def screw_formats_align(_alignments, out_format):
-    output = ""
-    if out_format == "phylipi":
+def screw_formats_align(_alignments, _out_format):
+    _output = ""
+    if _out_format == "phylipi":
         if len(_alignments) > 1:
             print("Warning: the input file contained more than one alignment, but phylip can only handle one. "
                   "The topmost alignment is shown here.", file=sys.stderr)
         _seqs = list(_alignments[0])
-        output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
+        _output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
         max_id_length = 0
         for _seq in _seqs:
             max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
 
         for _seq in _seqs:
             _seq_id = _seq.id.ljust(max_id_length)
-            output += "%s %s\n" % (_seq_id, _seq.seq)
+            _output += "%s %s\n" % (_seq_id, _seq.seq)
     else:
         for alignment in _alignments:
-            output += alignment.format(out_format)
+            _output += alignment.format(_out_format)
 
-    return output
+    return _output
 
 
 def hash_seqeunce_ids(_sequences):
@@ -232,7 +238,7 @@ def hash_seqeunce_ids(_sequences):
         new_hash = ""
         seq_ids.append(_sequences[i].id)
         while True:
-            new_hash = "".join([choice(string.ascii_letters + string.digits) for n in range(10)])
+            new_hash = "".join([choice(string.ascii_letters + string.digits) for _ in range(10)])
             if new_hash in hash_list:
                 continue
             else:
@@ -256,28 +262,80 @@ def pull_recs(_arg1, _arg2):
         in_file = os.path.abspath(_arg2)
         substring = _arg1
 
-    output = []
+    _output = []
     for _seq in SeqIO.parse(in_file, guess_format(in_file)):
         if _seq.description.find(substring) != -1:
-            output.append(_seq)
+            _output.append(_seq)
 
-    return output
+    return _output
 
 
-def pull_seq_ends(_sequences, amount, which_end):
+def pull_seq_ends(_sequences, _amount, _which_end):
     seq_ends = []
     for _seq in _sequences:
-        if which_end == 'front':
-            _seq.seq = _seq.seq[:amount]
+        if _which_end == 'front':
+            _seq.seq = _seq.seq[:_amount]
 
-        elif which_end == "rear":
-            _seq.seq = _seq.seq[-1 * amount:]
+        elif _which_end == "rear":
+            _seq.seq = _seq.seq[-1 * _amount:]
 
         else:
             sys.exit("Error: you much pick 'front' or 'rear' as the third argument in pull_seq_ends.")
         seq_ends.append(_seq)
 
     return seq_ends
+
+
+def find_repeats(_sequences):
+    unique_seqs = {}
+    repeat_ids = {}
+    repeat_seqs = {}
+
+    # First find replicate IDs
+    for _seq in _sequences:
+        if _seq.id in repeat_ids:
+            repeat_ids[_seq.id].append(_seq)
+        elif _seq.id in unique_seqs:
+            repeat_ids[_seq.id] = [_seq]
+            repeat_ids[_seq.id].append(unique_seqs[_seq.id])
+            del(unique_seqs[_seq.id])
+        else:
+            unique_seqs[_seq.id] = _seq
+
+    # Then look for replicate sequences
+    flip_uniqe = {}
+    del_keys = []
+    for key, value in unique_seqs.items():  # find and remove duplicates in/from the unique list
+        value = str(value.seq)
+        if value not in flip_uniqe:
+            flip_uniqe[value] = [key]
+        else:
+            if value not in repeat_seqs:
+                repeat_seqs[value] = [key]
+                repeat_seqs[value] += flip_uniqe[value]
+                if flip_uniqe[value][0] in unique_seqs:
+                    del_keys.append(flip_uniqe[value][0])
+            else:
+                repeat_seqs[value].append(key)
+            del_keys.append(unique_seqs[key])
+
+    for key in del_keys:
+        if key in unique_seqs:
+            del(unique_seqs[key])
+
+    for key, value in repeat_ids.items():  # find duplicates in the repeat ID list
+        for blahh in value:
+            blahh = str(blahh.seq)
+            if blahh not in flip_uniqe:
+                flip_uniqe[blahh] = [key]
+            else:
+                if blahh not in repeat_seqs:
+                    repeat_seqs[blahh] = [key]
+                    repeat_seqs[blahh] += flip_uniqe[blahh]
+
+                else:
+                    repeat_seqs[blahh].append(key)
+    return [unique_seqs, repeat_ids, repeat_seqs]
 
 
 if __name__ == '__main__':
@@ -308,6 +366,8 @@ if __name__ == '__main__':
     parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=3,
                         help="Get the ends (front or rear) of all sequences in a file."
                              "Arguments: <file> <amount (int)> <front|rear>")
+    parser.add_argument('-fr', '--find_repeats', action='store',
+                        help="Identify whether a file contains repeat sequences and/or sequence ids")
 
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
     parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
@@ -318,6 +378,43 @@ if __name__ == '__main__':
         out_format = in_args.format
     else:
         out_format = "fasta"
+
+    # Find repeat sequences or ids
+    if in_args.find_repeats:
+        path = os.path.abspath(in_args.find_repeats)
+        with open(path, "r") as ifile:
+            sequences = list(SeqIO.parse(ifile, guess_format(path)))
+        unique, rep_ids, rep_seqs = find_repeats(sequences)
+        output = ""
+        if len(rep_ids) > 0:
+            output += "Records with duplicate IDs:\n"
+            for next_id in rep_ids:
+                output += "%s, " % next_id
+            output = "%s\n\n" % output.strip(", ")
+
+        else:
+            output += "No records with duplicate IDs\n\n"
+        if len(rep_seqs) > 0:
+            output += "Records with duplicate sequences:\n"
+            for next_id in rep_seqs:
+                if len(rep_seqs[next_id]) > 1:
+                    output += "("
+                    for seq_id in rep_seqs[next_id]:
+                        output += "%s, " % seq_id
+                    output = "%s), " % output.strip(", ")
+                else:
+                    output += "%s, " % next_id
+            output = "%s\n\n" % output.strip(", ")
+        else:
+            output += "No records with duplicate sequences\n\n"
+        if len(unique) > 0:
+            output += "Unique records:\n"
+            for next_id in unique:
+                output += "%s, " % next_id
+            output = "%s" % output.strip(", ")
+        else:
+            output += "No unique records"
+        print(output)
 
     # Pull sequence ends
     if in_args.pull_record_ends:
