@@ -7,7 +7,6 @@ Create a new template python file
 """
 
 import argparse
-import sys
 import os
 import datetime
 
@@ -25,11 +24,11 @@ parser.add_argument('-nc', '--no_class', help="Do not include a Class block", ac
 parser.add_argument('-nf', '--no_functions', help="Do not include def blocks block.", action='store_true')
 parser.add_argument('-nm', '--no_main', help="Do not include a __name__ = '__main__' block.", action='store_true')
 parser.add_argument('-ni', '--no_import', help="Do not import common packages", action='store_true')
-parser.add_argument('-t', '--time', help="Set up a runtime counter", action='store_true')
 
+parser.add_argument('-t', '--time', help="Set up a runtime counter", action='store_true')
 parser.add_argument('-am', '--args_in_main', help="Write argpase in the __main__ block", action="store_true")
 parser.add_argument('-b', '--binary_loc', help='Specify the location of your python executable for the hashbang',
-                    action='store', default=sys.executable.split(".")[0])
+                    action='store', default="/usr/bin/env python3")
 parser.add_argument('-e', '--encoding', help='Specify the encoding for the file.', action='store', default="utf-8")
 
 in_args = parser.parse_args()
@@ -38,8 +37,8 @@ in_args = parser.parse_args()
 def argparse_block(white_space=0):
     out = ""
     out += "%simport argparse\n\n" % "".rjust(white_space, " ")
-    out += "%sparser = argparse.ArgumentParser(prog=\"%s\", description=\"\"), " \
-           "formatter_class=argparse.ArgumentDefaultsHelpFormatter\n\n" % \
+    out += "%sparser = argparse.ArgumentParser(prog=\"%s\", description=\"\", " \
+           "formatter_class=argparse.ArgumentDefaultsHelpFormatter)\n\n" % \
            ("".rjust(white_space, " "), in_args.new_file.split("/")[-1].split(".")[0])
     out += "%sparser.add_argument(\"positional_arg1\", help=\"\", action=\"store\")\n" % "".rjust(white_space, " ")
     out += "%sparser.add_argument(\"-t\", \"--true\", help=\"\", action=\"store_true\", default=False)\n" \
@@ -64,7 +63,7 @@ if not in_args.no_docstrings:
     output += '"""\nDESCRIPTION OF PROGRAM\n"""\n\n'
 
 if not in_args.no_import:
-    output += "import sys, os, re, shutil, MyFuncs\n"
+    output += "import sys\nimport os\nimport re\nimport shutil\nimport MyFuncs\nimport seq_tools\n"
 
 if in_args.time:
     output += "import timeit\n"
