@@ -70,7 +70,7 @@ def guess_alphabet(_sequence):  # Can be sequence file or raw, does not handle a
     for next_seq in _sequences:
         if len(_sequence) > 1000:
             break
-        _sequence += str(next_seq.seq)
+        _sequence += str(next_seq)
 
     _sequence = re.sub("[NX]", "", _sequence)
 

@@ -3,8 +3,8 @@
 # Created on: Oct 3 2014
 
 """
-Creates .cgf configuration files for partitionfinder, given an input file that specifies where alignment files can be
-found (fasta format) and how to break them up into data blocks. The actual program can be run directly from here as well.
+Creates .cgf configuration files for partitionfinder(protein), given an input file that specifies where alignment files can be
+found and how to break them up into data blocks. The actual program can be run directly from here as well.
 For some PartitionFinder references, see:   - Lanfear et al., 2012 doi: 10.1093/molbev/mss020
                                             - Lanfear et al., 2014 doi: 10.1186/1471-2148-14-82
 """
