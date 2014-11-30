@@ -43,6 +43,13 @@ def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Se
         _sequences = [Seq(sequence)]
 
     return _sequences
+
+
+def _print_recs(rec_list):
+    for _rec in rec_list:
+        _rec.seq = _set_alphabet(_rec.seq)
+        print(_rec.format(out_format))
+
 # #################################################################################################################### #
 
 
@@ -395,6 +402,17 @@ def list_ids(_sequences):
         ids.append(_seq.id)
     return ids
 
+
+def rename(_sequences, query, replace=""):
+    _sequences = _sequence_list(_sequences)
+    _new_seqs = []
+    for _seq in _sequences:
+        new_name = re.sub(query, replace, _seq.id)
+        _seq.id = new_name
+        _seq.name = new_name
+        _new_seqs.append(_seq)
+    return _new_seqs
+
 # ################################################# COMMAND LINE UI ################################################## #
 if __name__ == '__main__':
     import argparse
@@ -417,6 +435,8 @@ if __name__ == '__main__':
                         help="Arguments: <nucl_gb_file> <prot_file>")
     parser.add_argument('-fp2d', '--map_features_prot2dna', action='store', nargs=2,
                         help="Arguments: <prot_gb_file> <nucl_file>")
+    parser.add_argument('-ri', '--rename_ids', action='store', nargs=3,
+                        help="Arguments: <seq_file> <pattern> <substitution>")
     parser.add_argument('-cf', '--combine_features', action='store', nargs=2, help="Arguments: <seq_file1> <seq_file2>")
     parser.add_argument('-cl', '--combine_files', action='store', nargs="+",
                         help="Arguments: <format> <files ... > <True|False (for mixing formats; optional)>")
@@ -443,6 +463,12 @@ if __name__ == '__main__':
         out_format = in_args.format
     else:
         out_format = "fasta"
+
+    # Renaming
+    if in_args.rename_ids:
+        sequences = in_args.rename_ids[0]
+        seqs = rename(sequences, in_args.rename_ids[1], in_args.rename_ids[2])
+        _print_recs(seqs)
 
     # Transcribe
     if in_args.transcribe:
