@@ -8,6 +8,8 @@ from random import choice
 from string import hexdigits
 from math import floor
 import os
+from tempfile import gettempdir
+from shutil import copy, copytree
 
 
 # might be nice to change this to a class that tracks length of last print, so it can be fully cleared when \r is called
@@ -134,43 +136,92 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
 
 
 class TempDir():
-    def __init__(self, base="", save=False):
-        self.save = save
-        base = "%s_" % base if base != "" else ""
-        self.dir = "/Volumes/Zippy/tmp/%s%s" % (base, ''.join(choice(hexdigits) for _ in range(10)))
-        Popen("mkdir %s" % self.dir, shell=True).wait()
-    
-    def __str__(self):
-        return self.dir
-    
-    def clean(self):
-        Popen("rm -R %s" % self.dir, shell=True).wait()
-        
-    def __del__(self):
-        if os.path.isdir(self.dir) and not self.save:
-            self.clean()
-
-        
-class TempFile():
-    def __init__(self, base="", save=False):
-        self.save = save
+    def __init__(self, base=""):
         self.base = "%s_" % base if base != "" else ""
-        self.file = self._make_file()
-        Popen("touch %s" % self.file, shell=True).wait()
+        while True:  # This is to make sure a temp dir doesn't over-write another, in the unlikely event of repeat name
+            if self._make_dir_name():
+                break
+        Popen("mkdir %s" % self.dir, shell=True).wait()
 
-    def _make_file(self):
-        new_file = "/Volumes/Zippy/tmp/%s%s.tmp" % (self.base, ''.join(choice(hexdigits) for _ in range(10)))
-        return new_file
+    def _make_dir_name(self):
+        self.dir = "%s/%s%s" % (gettempdir(), self.base, ''.join(choice(hexdigits) for _ in range(10)))
+        if os.path.isdir(self.dir):
+            return False
+        else:
+            return True
+
+    def save(self, location):
+        copytree(self.dir, location)
+        return
 
     def __str__(self):
-        return self.file
-            
-    def clean(self):
-        Popen("rm %s" % self.file, shell=True).wait()
-        
+        return str(self.dir)
+
     def __del__(self):
-        if os.path.isfile(self.file) and not self.save:
-            self.clean()
+        dir_path = self.dir
+        Popen("rm -R %s" % dir_path, shell=True).wait()
+
+
+class TempFile():
+    def __init__(self, base=""):
+        self.base = "%s_" % base if base != "" else ""
+        while True:  # This is to make sure a temp file doesn't over-write another, in the unlikely event of repeat name
+            if self._make_file_name():
+                break
+        Popen("touch %s" % self.file, shell=True).wait()
+        self.handle = None
+        self.open("w")
+
+    def _make_file_name(self):
+        self.file = "%s/%s%s.tmp" % (gettempdir(), self.base, ''.join(choice(hexdigits) for _ in range(10)))
+        if os.path.isfile(self.file):
+            return False
+        else:
+            return True
+
+    def open(self, mode):
+        if not self.handle:
+            self.handle = open(str(self.file), mode)
+        return self.handle
+
+    def close(self):
+        if self.handle:
+            self.handle.close()
+            self.handle = None
+        return
+
+    def write(self, content, mode="a"):
+        if mode not in ["w", "a"]:
+            return False
+        if self.handle:
+            self.handle.write(content)
+        else:
+            with open(self.file, mode) as ofile:
+                ofile.write(content)
+        return True
+
+    def read(self):
+        if not self.handle:
+            with open(self.file, "r") as ifile:
+                content = ifile.read()
+        else:
+            self.close()
+            with open(self.file, "r") as ifile:
+                content = ifile.read()
+            self.open("a")
+        return content
+
+    def save(self, location):
+        copy(self.file, location)
+        return
+
+    def __str__(self):
+        return str(self.file)
+
+    def __del__(self):
+        file_path = str(self.file)
+        Popen("rm %s" % file_path, shell=True).wait()
+        return
 
 
 class SafetyValve():  # Use this class if you're afraid of an infinit loop
