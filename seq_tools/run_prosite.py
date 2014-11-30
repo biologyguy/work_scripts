@@ -19,9 +19,8 @@ class Prosite():
         self.outfile = ""
 
     def run_prosite(self, client_path):
-        with open(self.tmp_file.file, "w") as out_file:
-            out_file.write(str(self.sequence.seq))
-
+        self.tmp_file.write(str(self.sequence.seq))
+        self.tmp_file.close()
         output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 %s"
                        % (client_path, self.tmp_dir.dir, self.sequence.id, self.tmp_file.file), shell=True,
                        stdout=PIPE).communicate()[0].decode()
@@ -53,9 +52,8 @@ class Prosite():
 def run_interproscan(sequence, interpro_output_dir):  # This had not been fully implemented...
     tmp_file = TempFile()
     sequence.id = sequence.id
-    with open(tmp_file.file, "w") as out_file:
-        out_file.write(str(sequence.seq))
-
+    tmp_file.write(str(sequence.seq))
+    tmp_file.close()
     output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 --service interpro %s"
                    % (prosite_scan_client, interpro_output_dir, sequence.id, tmp_file.file), shell=True,
                    stdout=PIPE).communicate()[0].decode()
