@@ -36,14 +36,14 @@ def _set_alphabet(_seq_list, alpha=None):  # update sequence alphabet in place
 
 
 def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq object
-    if os.path.isfile(sequence):
+    if isinstance(sequence, list):
+        _sequences = sequence
+    elif os.path.isfile(sequence):
         _seq_format = guess_format(sequence)
         if not _seq_format:
             sys.exit("Error: could not determine the format of your input sequence file.")
         with open(sequence, "r") as infile:
             _sequences = list(SeqIO.parse(infile, _seq_format))
-    elif isinstance(sequence, list):
-        _sequences = sequence
     else:
         # dna_or_prot = IUPAC.protein if guess_alphabet(sequence) == "prot" else IUPAC.ambiguous_dna
         _sequences = [SeqRecord(Seq(sequence))]
@@ -59,7 +59,11 @@ def _print_recs(rec_list):
             _output += _rec.format(out_format) + "\n"
         except ValueError as e:
             _output += "Error: %s\n" % e
-    print(_output.strip())
+    if in_args.in_place and in_place_allowed:
+        print(_output.strip())
+    else:
+        print(_output.strip())
+
 # #################################################################################################################### #
 
 
@@ -119,27 +123,31 @@ def translate_cds(_sequences):
     return _output
 
 
-def concat_seqs(_sequences):
-    _sequences = clean_seq(_sequences)
-    return "".join(_sequences)
+def concat_seqs(_sequences):  # TODO: Add each concatinated sequence as a record feature
+    _output = ""
+    concat_ids = ""
+    for _seq_list in _sequences:
+        _seq_list = _sequence_list(_seq_list)
+        _sequences = [_seq.seq for _seq in clean_seq(_seq_list)]
+        _id_list = [_seq.id for _seq in clean_seq(_seq_list)]
+        _output += "".join(_sequences)
+        concat_ids += "|".join(_id_list)
+    alpha = guess_alphabet(_output)
+    _output = [SeqRecord(Seq(_output, alphabet=alpha), description=concat_ids, id="concatination")]
+    return _output
 
 
-def count_sequences(_sequences):
-    _sequences = _sequence_list(_sequences)
-    return len(_sequences)
-
-
-def clean_seq(sequence):  # from file or raw
+def clean_seq(_sequences):  # from file or raw
     """remove fasta headers, numbers, and whitespace from sequence strings"""
-    _sequences = _sequence_list(sequence)
+    _sequences = _sequence_list(_sequences)
     _output = []
     for _seq in _sequences:
-        _seq = re.sub(">.*", "", str(_seq.seq))
-        _seq = re.sub("[0-9\s\-\*]", "", _seq)
-        _seq = _seq.upper()
+        _seq.seq = re.sub(">.*", "", str(_seq.seq))
+        _seq.seq = re.sub("[0-9\s\-\*]", "", str(_seq.seq))
+        _seq.seq = str(_seq.seq).upper()
         _output.append(_seq)
 
-    return _output  # returns a list of sequences in string format
+    return _output  # returns a list of cleaned sequence objects
 
 
 def guess_format(in_file):
@@ -247,28 +255,6 @@ def combine_features(seqs1, seqs2):  # Input as SeqIO.to_dict objects.
     return _new_seqs
 
 
-def screw_formats_align(_alignments, _out_format):
-    _output = ""
-    if _out_format == "phylipi":
-        if len(_alignments) > 1:
-            print("Warning: the input file contained more than one alignment, but phylip can only handle one. "
-                  "The topmost alignment is shown here.", file=sys.stderr)
-        _seqs = list(_alignments[0])
-        _output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
-        max_id_length = 0
-        for _seq in _seqs:
-            max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
-
-        for _seq in _seqs:
-            _seq_id = _seq.id.ljust(max_id_length)
-            _output += "%s %s\n" % (_seq_id, _seq.seq)
-    else:
-        for alignment in _alignments:
-            _output += alignment.format(_out_format)
-
-    return _output
-
-
 def hash_seqeunce_ids(_sequences):
     hash_list = []
     seq_ids = []
@@ -291,20 +277,11 @@ def hash_seqeunce_ids(_sequences):
     return [hash_map, _sequences]
 
 
-def pull_recs(_arg1, _arg2):
-    if os.path.isfile(_arg1):
-        in_file = os.path.abspath(_arg1)
-        substring = _arg2
-
-    else:
-        in_file = os.path.abspath(_arg2)
-        substring = _arg1
-
+def pull_recs(_sequences, _search):
     _output = []
-    for _seq in SeqIO.parse(in_file, guess_format(in_file)):
-        if _seq.description.find(substring) != -1:
+    for _seq in _sequences:
+        if _seq.description.find(_search) != -1 or _seq.id.find(_search) != -1 or _seq.name.find(_search) != -1:
             _output.append(_seq)
-
     return _output
 
 
@@ -320,7 +297,6 @@ def pull_seq_ends(_sequences, _amount, _which_end):
         else:
             sys.exit("Error: you much pick 'front' or 'rear' as the third argument in pull_seq_ends.")
         seq_ends.append(_seq)
-
     return seq_ends
 
 
@@ -376,14 +352,6 @@ def find_repeats(_sequences):
     return [unique_seqs, repeat_ids, repeat_seqs]
 
 
-def list_ids(_sequences):
-    _sequences = _sequence_list(_sequences)
-    ids = []
-    for _seq in _sequences:
-        ids.append(_seq.id)
-    return ids
-
-
 def rename(_sequences, query, replace=""):
     _sequences = _sequence_list(_sequences)
     _new_seqs = []
@@ -401,41 +369,40 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="seq_tools.py", description="Commandline wrapper for all the fun functions in"
                                                                       "this file. Play with your sequences!")
 
-    parser.add_argument('-ga', '--guess_alphabet', action='store')
-    parser.add_argument('-gf', '--guess_format', action='store')
-    parser.add_argument('-cs', '--clean_seq', action='store', help="")
-    parser.add_argument('-tr', '--translate', action='store', help="Convert coding sequences into amino acid sequences")
-    parser.add_argument('-d2r', '--transcribe', action='store', help="Convert DNA sequences to RNA")
-    parser.add_argument('-r2d', '--back_transcribe', action='store', help="Convert RNA sequences to DNA")
-    parser.add_argument('-li', '--list_ids', action='store',
-                        help="Output all the sequence identifiers in a file. Use -p to specify # columns to write")
-    parser.add_argument('-ns', '--num_seqs', action='store',
-                        help="Counts how many sequences are present in an input file")
-    parser.add_argument('-cts', '--concat_seqs', action='store',
-                        help="Concatenate a bunch of sequences into a single solid string.")
-    parser.add_argument('-fd2p', '--map_features_dna2prot', action='store', nargs=2,
-                        help="Arguments: <nucl_gb_file> <prot_file>")
-    parser.add_argument('-fp2d', '--map_features_prot2dna', action='store', nargs=2,
-                        help="Arguments: <prot_gb_file> <nucl_file>")
-    parser.add_argument('-ri', '--rename_ids', action='store', nargs=3,
-                        help="Arguments: <seq_file> <pattern> <substitution>")
-    parser.add_argument('-cf', '--combine_features', action='store', nargs=2, help="Arguments: <seq_file1> <seq_file2>")
-    parser.add_argument('-sf', '--screw_formats', action='store', nargs=2,
-                        help="Arguments: <in_file> <out_format>")
-    parser.add_argument('-sfa', '--screw_formats_align', action='store', nargs=2,
-                        help="Arguments: <in_file> <out_format>")
-    parser.add_argument('-hsi', '--hash_seq_ids', action='store',
-                        help="Rename all the identifiers in a sequence list to a 10 character hash.")
-    parser.add_argument('-pr', '--pull_records', action='store', nargs=2,
-                        help="Get all the records with ids containing a given string")
-    parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=3,
-                        help="Get the ends (front or rear) of all sequences in a file."
-                             "Arguments: <file> <amount (int)> <front|rear>")
-    parser.add_argument('-fr', '--find_repeats', action='store',
-                        help="Identify whether a file contains repeat sequences and/or sequence ids")
-    parser.add_argument("-mg", "--merge", help="Group a bunch of seq files together", nargs="+")
+    parser.add_argument("sequence", help="Supply a file path or a raw sequence", nargs="+")
 
-    parser.add_argument("-i", "--inplace", help="Rewrite the input file in-place. Be careful!", action='store_true')
+    parser.add_argument('-ga', '--guess_alphabet', action='store_true')
+    parser.add_argument('-gf', '--guess_format', action='store_true')
+    parser.add_argument('-cs', '--clean_seq', action='store_true', help="Strip out numbers and stuff")
+    parser.add_argument('-tr', '--translate', action='store_true', help="Convert coding sequences into amino acid sequences")
+    parser.add_argument('-d2r', '--transcribe', action='store_true', help="Convert DNA sequences to RNA")
+    parser.add_argument('-r2d', '--back_transcribe', action='store_true', help="Convert RNA sequences to DNA")
+    parser.add_argument('-li', '--list_ids', action='store_true',
+                        help="Output all the sequence identifiers in a file. Use -p to specify # columns to write")
+    parser.add_argument('-ns', '--num_seqs', action='store_true',
+                        help="Counts how many sequences are present in an input file")
+    parser.add_argument('-cts', '--concat_seqs', action='store_true',
+                        help="Concatenate a bunch of sequences into a single solid string.")  # This needs more work
+    parser.add_argument('-fd2p', '--map_features_dna2prot', action='store', nargs=2,
+                        help="Arguments: <nucl_gb_file> <prot_file>")  # Modify for new convention
+    parser.add_argument('-fp2d', '--map_features_prot2dna', action='store', nargs=2,
+                        help="Arguments: <prot_gb_file> <nucl_file>")  # Modify for new convention
+    parser.add_argument('-ri', '--rename_ids', action='store', nargs=2,
+                        help="Arguments: <pattern> <substitution>")
+    parser.add_argument('-cf', '--combine_features', action='store', nargs=2, help="Arguments: <seq_file1> <seq_file2>")  # Modify for new convention
+    parser.add_argument('-sf', '--screw_formats', action='store', help="Arguments: out_format>")
+    parser.add_argument('-hsi', '--hash_seq_ids', action='store_true',
+                        help="Rename all the identifiers in a sequence list to a 10 character hash.")
+    parser.add_argument('-pr', '--pull_records', action='store',
+                        help="Get all the records with ids containing a given string")
+    parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=2,
+                        help="Get the ends (front or rear) of all sequences in a file."
+                             "Arguments: <amount (int)> <front|rear>")
+    parser.add_argument('-fr', '--find_repeats', action='store_true',
+                        help="Identify whether a file contains repeat sequences and/or sequence ids")
+    parser.add_argument("-mg", "--merge", help="Group a bunch of seq files together", action="store_true")
+
+    parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
     parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
     
@@ -447,56 +414,42 @@ if __name__ == '__main__':
         out_format = "fasta"
 
     in_place_allowed = False
+    seqs = _sequence_list(in_args.sequence[0])
 
     # Merge
     if in_args.merge:
         new_list = []
-        for infile in in_args.merge:
+        for infile in in_args.sequence:
             new_list += _sequence_list(infile)
         _print_recs(new_list)
 
     # Screw formats
     if in_args.screw_formats:
         in_place_allowed = True
-        seqs = _sequence_list(in_args.screw_formats[0])
-        out_format = in_args.screw_formats[1]
+        out_format = in_args.screw_formats
         _print_recs(seqs)
-
-    # Screw formats align
-    if in_args.screw_formats_align:
-        in_place_allowed = True
-        with open(os.path.abspath(in_args.screw_formats_align[0]), "r") as ifile:
-            align_format = guess_format(in_args.screw_formats_align[0])
-            alignments = list(AlignIO.parse(ifile, align_format))
-
-        print(screw_formats_align(alignments, in_args.screw_formats_align[1]))
 
     # Renaming
     if in_args.rename_ids:
         in_place_allowed = True
-        sequences = in_args.rename_ids[0]
-        seqs = rename(sequences, in_args.rename_ids[1], in_args.rename_ids[2])
+        seqs = rename(seqs, in_args.rename_ids[0], in_args.rename_ids[1])
         _print_recs(seqs)
 
     # Transcribe
     if in_args.transcribe:
         in_place_allowed = True
-        sequences = in_args.transcribe
-        if guess_alphabet(sequences) != "nucl":
+        if guess_alphabet(seqs) != "nucl":
             sys.exit("Error: You need to provide an unabmigious DNA sequence.")
-
-        for seq in dna2rna(sequences):
-            print(seq.format(out_format))
+        seqs = dna2rna(seqs)
+        _print_recs(seqs)
 
     # Back Transcribe
     if in_args.back_transcribe:
         in_place_allowed = True
-        sequences = in_args.back_transcribe
-        if guess_alphabet(sequences) != "nucl":
+        if guess_alphabet(seqs) != "nucl":
             sys.exit("Error: You need to provide an unabmigious DNA sequence.")
-
-        for seq in rna2dna(sequences):
-            print(seq.format(out_format))
+        seqs = rna2dna(seqs)
+        _print_recs(seqs)
 
     # List identifiers
     if in_args.list_ids:
@@ -506,8 +459,8 @@ if __name__ == '__main__':
             columns = 1
         output = ""
         counter = 1
-        for id in list_ids(in_args.list_ids):
-            output += "%s\t" % id
+        for seq in _sequence_list(seqs):
+            output += "%s\t" % seq.id
             if counter % columns == 0:
                 output = "%s\n" % output.strip()
             counter += 1
@@ -516,24 +469,21 @@ if __name__ == '__main__':
     # Translate CDS
     if in_args.translate:
         in_place_allowed = True
-        if guess_alphabet(in_args.translate) != "nucl":
+        if guess_alphabet(seqs) != "nucl":
             sys.exit("Error: you need to supply DNA or RNA sequences to translate")
-        _print_recs(translate_cds(in_args.translate))
+        _print_recs(translate_cds(seqs))
 
     # Concatenate sequences
     if in_args.concat_seqs:
-        print(concat_seqs(in_args.concat_seqs))
+        _print_recs(concat_seqs(in_args.sequence))
 
     # Count number of sequences in a file
     if in_args.num_seqs:
-        print(count_sequences(in_args.num_seqs))
+        print(len(seqs))
 
     # Find repeat sequences or ids
     if in_args.find_repeats:
-        path = os.path.abspath(in_args.find_repeats)
-        with open(path, "r") as ifile:
-            sequences = list(SeqIO.parse(ifile, guess_format(path)))
-        unique, rep_ids, rep_seqs = find_repeats(sequences)
+        unique, rep_ids, rep_seqs = find_repeats(seqs)
         output = ""
         if len(rep_ids) > 0:
             output += "Records with duplicate IDs:\n"
@@ -567,27 +517,21 @@ if __name__ == '__main__':
 
     # Pull sequence ends
     if in_args.pull_record_ends:
-        path, amount, which_end = in_args.pull_record_ends
+        amount, which_end = in_args.pull_record_ends
         amount = int(amount)
-        with open(os.path.abspath(path), "r") as ifile:
-            sequences = list(SeqIO.parse(ifile, guess_format(path)))
-            new_seqs = pull_seq_ends(sequences, amount, which_end)
-            for seq in new_seqs:
-                seq.seq = _set_alphabet(seq.seq)
-                print(seq.format(out_format))
+        new_seqs = pull_seq_ends(seqs, amount, which_end)
+        _print_recs(new_seqs)
 
     # Pull records
     if in_args.pull_records:
-        arg1, arg2 = in_args.pull_records
-        records = pull_recs(arg1, arg2)
-        for rec in records:
-            rec.seq = _set_alphabet(rec.seq)
-            print(rec.format(out_format))
+        search = in_args.pull_records
+        records = pull_recs(seqs, search)
+        _print_recs(records)
 
     # Hash sequence ids
     if in_args.hash_seq_ids:
         in_place_allowed = True
-        hashed = hash_seqeunce_ids(_sequence_list(in_args.hash_seq_ids))
+        hashed = hash_seqeunce_ids(_sequence_list(seqs))
         hash_table = "# Hash table\n"
         for seq in hashed[0]:
             hash_table += "%s,%s\n" % (seq[0], seq[1])
@@ -596,20 +540,20 @@ if __name__ == '__main__':
 
     # Guess alphabet
     if in_args.guess_alphabet:
-        print(guess_alphabet(in_args.guess_alphabet))
+        print(guess_alphabet(seqs))
 
     # Clean Seq
     if in_args.clean_seq:
         in_place_allowed = True
-        seqs = clean_seq(in_args.clean_seq)
+        seqs = clean_seq(seqs)
         output = ""
         for seq in seqs:
-            output += "%s\n\n" % seq
+            output += "%s\n\n" % seq.seq
         print(output.strip())
 
     # Guess format
     if in_args.guess_format:
-        print(guess_format(in_args.guess_format))
+        print(guess_format(in_args.sequence[0]))
 
     # Map features from cDNA over to protein
     if in_args.map_features_dna2prot:
