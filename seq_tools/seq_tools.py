@@ -456,16 +456,24 @@ if __name__ == '__main__':
                              "Arguments: <file> <amount (int)> <front|rear>")
     parser.add_argument('-fr', '--find_repeats', action='store',
                         help="Identify whether a file contains repeat sequences and/or sequence ids")
+    parser.add_argument("-mg", "--merge", help="Group a bunch of seq files together", nargs="+")
 
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
     parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
-
+    
     in_args = parser.parse_args()
 
     if in_args.format:
         out_format = in_args.format
     else:
         out_format = "fasta"
+
+    # Merge
+    if in_args.merge:
+        new_list = []
+        for infile in in_args.merge:
+            new_list += _sequence_list(infile)
+        _print_recs(new_list)
 
     # Screw formats
     if in_args.screw_formats:
