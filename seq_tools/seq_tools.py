@@ -587,13 +587,12 @@ if __name__ == '__main__':
     # Hash sequence ids
     if in_args.hash_seq_ids:
         in_place_allowed = True
-        with open(os.path.abspath(in_args.hash_seq_ids), "r") as ifile:
-            seq_format = guess_format(in_args.hash_seq_ids)
-            seqs = list(SeqIO.parse(ifile, seq_format))
-            hashed = hash_seqeunce_ids(seqs)
-            print("# Hash table\n%s\n\n# Sequences\n" % hashed[0])
-            for seq in hashed[1]:
-                print(seq.format(seq_format))
+        hashed = hash_seqeunce_ids(_sequence_list(in_args.hash_seq_ids))
+        hash_table = "# Hash table\n"
+        for seq in hashed[0]:
+            hash_table += "%s,%s\n" % (seq[0], seq[1])
+        print("%s\n" % hash_table, file=sys.stderr)
+        _print_recs(hashed[1])
 
     # Guess alphabet
     if in_args.guess_alphabet:
