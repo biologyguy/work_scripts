@@ -2,14 +2,14 @@
 
 from multiprocessing import Process, cpu_count
 from subprocess import Popen
-from sys import stdout, exit
+from sys import stdout, exit, stderr
 from time import clock
 from random import choice
 from string import hexdigits
 from math import floor
 import os
-from tempfile import gettempdir
-from shutil import copy, copytree
+from tempfile import gettempdir, mkdtemp, TemporaryDirectory, TemporaryFile
+from shutil import copy, copytree, rmtree
 
 
 # might be nice to change this to a class that tracks length of last print, so it can be fully cleared when \r is called
@@ -136,91 +136,53 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
 
 
 class TempDir():
-    def __init__(self, base=""):
-        self.base = "%s_" % base if base != "" else ""
-        while True:  # This is to make sure a temp dir doesn't over-write another, in the unlikely event of repeat name
-            if self._make_dir_name():
-                break
-        Popen("mkdir %s" % self.dir, shell=True).wait()
+    def __init__(self):
+        self.dir = next(self._make_dir())
 
-    def _make_dir_name(self):
-        self.dir = "%s/%s%s" % (gettempdir(), self.base, ''.join(choice(hexdigits) for _ in range(10)))
-        if os.path.isdir(self.dir):
-            return False
-        else:
-            return True
+    @staticmethod
+    def _make_dir():
+        tmp_dir = TemporaryDirectory()
+        yield tmp_dir
+        rmtree(tmp_dir.name)
 
     def save(self, location):
-        copytree(self.dir, location)
-        return
+        if os.path.isdir(location):
+            print("Save Error: Indicated output folder already exists in TempDir.save(%s)" % location, file=stderr)
+            return False
+        else:
+            copytree(self.dir.name, location)
+            return True
 
     def __str__(self):
-        return str(self.dir)
-
-    def __del__(self):
-        dir_path = self.dir
-        Popen("rm -R %s" % dir_path, shell=True).wait()
+        return self.dir.name
 
 
 class TempFile():
-    def __init__(self, base=""):
-        self.base = "%s_" % base if base != "" else ""
-        while True:  # This is to make sure a temp file doesn't over-write another, in the unlikely event of repeat name
-            if self._make_file_name():
-                break
-        Popen("touch %s" % self.file, shell=True).wait()
-        self.handle = None
-        self.open("w")
-
-    def _make_file_name(self):
-        self.file = "%s/%s%s.tmp" % (gettempdir(), self.base, ''.join(choice(hexdigits) for _ in range(10)))
-        if os.path.isfile(self.file):
-            return False
-        else:
-            return True
-
-    def open(self, mode):
-        if not self.handle:
-            self.handle = open(str(self.file), mode)
-        return self.handle
-
-    def close(self):
-        if self.handle:
-            self.handle.close()
-            self.handle = None
-        return
+    def __init__(self):
+        self.handle = TemporaryFile(mode='w+t')
 
     def write(self, content, mode="a"):
         if mode not in ["w", "a"]:
+            print("Write Error: mode must be 'w' or 'a' in TempFile.write()", file=stderr)
             return False
-        if self.handle:
+        if mode == "a":
             self.handle.write(content)
         else:
-            with open(self.file, mode) as ofile:
-                ofile.write(content)
+            self.handle.truncate(0)
+            self.handle.write(content)
         return True
 
-    def read(self):
-        if not self.handle:
-            with open(self.file, "r") as ifile:
-                content = ifile.read()
-        else:
-            self.close()
-            with open(self.file, "r") as ifile:
-                content = ifile.read()
-            self.open("a")
-        return content
-
-    def save(self, location):
-        copy(self.file, location)
+    def home(self):
+        self.handle.seek(0)
         return
 
-    def __str__(self):
-        return str(self.file)
+    def read(self):
+        self.handle.seek(0)
+        return self.handle.read()
 
-    def __del__(self):
-        file_path = str(self.file)
-        Popen("rm %s" % file_path, shell=True).wait()
+    def save(self, location):
+        with open(location, "w") as ofile:
+            ofile.write(self.read())
         return
 
 
