@@ -14,21 +14,25 @@ from random import sample, choice
 from math import ceil
 from Bio import SeqIO, AlignIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
+from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio.Alphabet import IUPAC
 from Bio.Data.CodonTable import TranslationError
 
 
 # ################################################ INTERNAL FUNCTIONS ################################################ #
-def _set_alphabet(_sequence):  # update sequence alphabet in place
-    alpha = guess_alphabet(str(_sequence))
+def _set_alphabet(_seq_list, alpha=None):  # update sequence alphabet in place
+    if not alpha:
+        alpha = guess_alphabet(_seq_list)
     if alpha == "nucl":
-        _sequence.alphabet = IUPAC.ambiguous_dna
+        alpha = IUPAC.ambiguous_dna
     elif alpha == "prot":
-        _sequence.alphabet = IUPAC.protein
+        alpha = IUPAC.protein
     else:
         sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
-    return _sequence
+    for i in range(len(_seq_list)):
+        _seq_list[i].seq.alphabet = alpha
+    return _seq_list
 
 
 def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq object
@@ -38,16 +42,18 @@ def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Se
             sys.exit("Error: could not determine the format of your input sequence file.")
         with open(sequence, "r") as infile:
             _sequences = list(SeqIO.parse(infile, _seq_format))
+    elif isinstance(sequence, list):
+        _sequences = sequence
     else:
         # dna_or_prot = IUPAC.protein if guess_alphabet(sequence) == "prot" else IUPAC.ambiguous_dna
-        _sequences = [Seq(sequence)]
+        _sequences = [SeqRecord(Seq(sequence))]
 
     return _sequences
 
 
 def _print_recs(rec_list):
+    rec_list = _set_alphabet(rec_list)
     for _rec in rec_list:
-        _rec.seq = _set_alphabet(_rec.seq)
         print(_rec.format(out_format))
 
 # #################################################################################################################### #
@@ -71,14 +77,15 @@ def dna2rna(_sequences):
     return _output
 
 
-def guess_alphabet(_sequence):  # Can be sequence file or raw, does not handle ambigious dna
-    _sequences = _sequence_list(_sequence)
+def guess_alphabet(_sequences):  # Does not handle ambigious dna
+    if not isinstance(_sequences, list):
+        _sequences = _sequence_list(_sequences)
+
     _sequence = ""
     for next_seq in _sequences:
         if len(_sequence) > 1000:
             break
-        _sequence += str(next_seq)
-
+        _sequence += str(next_seq.seq)
     _sequence = re.sub("[NX]", "", _sequence)
 
     percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
@@ -92,7 +99,6 @@ def guess_alphabet(_sequence):  # Can be sequence file or raw, does not handle a
 def translate_cds(_sequences):
     _output = []
     _sequences = _sequence_list(_sequences)
-
     for _seq in _sequences:
         try:
             _seq.seq = _seq.seq.translate(cds=True, to_stop=True)
@@ -262,10 +268,6 @@ def combine_features(seqs1, seqs2):  # Input as SeqIO.to_dict objects.
     return _new_seqs
 
 
-def screw_formats(_sequences, file_format):
-    return _sequences.format(file_format)
-
-
 def screw_formats_align(_alignments, _out_format):
     _output = ""
     if _out_format == "phylipi":
@@ -413,6 +415,7 @@ def rename(_sequences, query, replace=""):
         _new_seqs.append(_seq)
     return _new_seqs
 
+
 # ################################################# COMMAND LINE UI ################################################## #
 if __name__ == '__main__':
     import argparse
@@ -464,6 +467,20 @@ if __name__ == '__main__':
     else:
         out_format = "fasta"
 
+    # Screw formats
+    if in_args.screw_formats:
+        seqs = _sequence_list(in_args.screw_formats[0])
+        out_format = in_args.screw_formats[1]
+        _print_recs(seqs)
+
+    # Screw formats align
+    if in_args.screw_formats_align:
+        with open(os.path.abspath(in_args.screw_formats_align[0]), "r") as ifile:
+            align_format = guess_format(in_args.screw_formats_align[0])
+            alignments = list(AlignIO.parse(ifile, align_format))
+
+        print(screw_formats_align(alignments, in_args.screw_formats_align[1]))
+
     # Renaming
     if in_args.rename_ids:
         sequences = in_args.rename_ids[0]
@@ -507,10 +524,7 @@ if __name__ == '__main__':
     if in_args.translate:
         if guess_alphabet(in_args.translate) != "nucl":
             sys.exit("Error: you need to supply DNA or RNA sequences to translate")
-        proteins = translate_cds(in_args.translate)
-
-        for protein in proteins:
-            print("%s\n" % protein.format(out_format))
+        _print_recs(translate_cds(in_args.translate))
 
     # Concatenate sequences
     if in_args.concat_seqs:
@@ -585,20 +599,6 @@ if __name__ == '__main__':
             print("# Hash table\n%s\n\n# Sequences\n" % hashed[0])
             for seq in hashed[1]:
                 print(seq.format(seq_format))
-
-    # Screw formats
-    if in_args.screw_formats:
-        with open(os.path.abspath(in_args.screw_formats[0]), "r") as ifile:
-            seqs = SeqIO.parse(ifile, guess_format(in_args.screw_formats[0]))
-            print(screw_formats(seqs, in_args.screw_formats[1]))
-
-    # Screw formats align
-    if in_args.screw_formats_align:
-        with open(os.path.abspath(in_args.screw_formats_align[0]), "r") as ifile:
-            align_format = guess_format(in_args.screw_formats_align[0])
-            alignments = list(AlignIO.parse(ifile, align_format))
-
-        print(screw_formats_align(alignments, in_args.screw_formats_align[1]))
 
     # Guess alphabet
     if in_args.guess_alphabet:
