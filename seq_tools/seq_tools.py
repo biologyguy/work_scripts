@@ -12,7 +12,7 @@ import re
 import string
 from random import sample, choice
 from math import ceil
-from Bio import SeqIO, AlignIO
+from Bio import SeqIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
@@ -58,9 +58,17 @@ def _print_recs(rec_list):
         try:
             _output += _rec.format(out_format) + "\n"
         except ValueError as e:
-            _output += "Error: %s\n" % e
+            print("Error: %s\n" % e, file=sys.stderr)
+
     if in_args.in_place and in_place_allowed:
-        print(_output.strip())
+        if not os.path.exists(in_args.sequence[0]):
+            print("Error: The -i flag was passed in, but the positional argument doesn't seem to be a file",
+                  file=sys.stderr)
+            print(_output.strip())
+        else:
+            with open(os.path.abspath(in_args.sequence[0]), "w") as ofile:
+                ofile.write(_output)
+            print("File over-written at:\n%s" % os.path.abspath(in_args.sequence[0]), file=sys.stderr)
     else:
         print(_output.strip())
 
