@@ -53,9 +53,13 @@ def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Se
 
 def _print_recs(rec_list):
     rec_list = _set_alphabet(rec_list)
+    _output = ""
     for _rec in rec_list:
-        print(_rec.format(out_format))
-
+        try:
+            _output += _rec.format(out_format) + "\n"
+        except ValueError as e:
+            _output += "Error: %s\n" % e
+    print(_output.strip())
 # #################################################################################################################### #
 
 
@@ -136,31 +140,6 @@ def clean_seq(sequence):  # from file or raw
         _output.append(_seq)
 
     return _output  # returns a list of sequences in string format
-
-
-def combine_files(file_paths, mix=False):  # Combine the sequences from a bunch of files into a single list
-    new_seq_list = []
-    dna_or_prot = None
-    for next_file in file_paths:
-        in_format = guess_format(next_file)
-        with open(os.path.abspath(next_file), "r") as infile:
-            _sequences = list(SeqIO.parse(infile, in_format))
-            if not dna_or_prot:
-                dna_or_prot = guess_alphabet(str(_sequences[0].seq))
-            for next_seq in _sequences:
-                alpha = guess_alphabet(str(next_seq.seq))
-                if dna_or_prot != alpha and not mix:
-                    sys.exit("Error: It looks like you are trying to mix DNA and Protein files. If you really do want"
-                             "to do that, set mix=True")
-
-                if alpha == "nucl":
-                    next_seq.seq.alphabet = IUPAC.ambiguous_dna
-
-                if alpha == "prot":
-                    next_seq.seq.alphabet = IUPAC.protein
-                new_seq_list.append(next_seq)
-
-    return new_seq_list
 
 
 def guess_format(in_file):
@@ -441,8 +420,6 @@ if __name__ == '__main__':
     parser.add_argument('-ri', '--rename_ids', action='store', nargs=3,
                         help="Arguments: <seq_file> <pattern> <substitution>")
     parser.add_argument('-cf', '--combine_features', action='store', nargs=2, help="Arguments: <seq_file1> <seq_file2>")
-    parser.add_argument('-cl', '--combine_files', action='store', nargs="+",
-                        help="Arguments: <format> <files ... > <True|False (for mixing formats; optional)>")
     parser.add_argument('-sf', '--screw_formats', action='store', nargs=2,
                         help="Arguments: <in_file> <out_format>")
     parser.add_argument('-sfa', '--screw_formats_align', action='store', nargs=2,
@@ -458,6 +435,7 @@ if __name__ == '__main__':
                         help="Identify whether a file contains repeat sequences and/or sequence ids")
     parser.add_argument("-mg", "--merge", help="Group a bunch of seq files together", nargs="+")
 
+    parser.add_argument("-i", "--inplace", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
     parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
     
@@ -468,6 +446,8 @@ if __name__ == '__main__':
     else:
         out_format = "fasta"
 
+    in_place_allowed = False
+
     # Merge
     if in_args.merge:
         new_list = []
@@ -477,12 +457,14 @@ if __name__ == '__main__':
 
     # Screw formats
     if in_args.screw_formats:
+        in_place_allowed = True
         seqs = _sequence_list(in_args.screw_formats[0])
         out_format = in_args.screw_formats[1]
         _print_recs(seqs)
 
     # Screw formats align
     if in_args.screw_formats_align:
+        in_place_allowed = True
         with open(os.path.abspath(in_args.screw_formats_align[0]), "r") as ifile:
             align_format = guess_format(in_args.screw_formats_align[0])
             alignments = list(AlignIO.parse(ifile, align_format))
@@ -491,12 +473,14 @@ if __name__ == '__main__':
 
     # Renaming
     if in_args.rename_ids:
+        in_place_allowed = True
         sequences = in_args.rename_ids[0]
         seqs = rename(sequences, in_args.rename_ids[1], in_args.rename_ids[2])
         _print_recs(seqs)
 
     # Transcribe
     if in_args.transcribe:
+        in_place_allowed = True
         sequences = in_args.transcribe
         if guess_alphabet(sequences) != "nucl":
             sys.exit("Error: You need to provide an unabmigious DNA sequence.")
@@ -506,6 +490,7 @@ if __name__ == '__main__':
 
     # Back Transcribe
     if in_args.back_transcribe:
+        in_place_allowed = True
         sequences = in_args.back_transcribe
         if guess_alphabet(sequences) != "nucl":
             sys.exit("Error: You need to provide an unabmigious DNA sequence.")
@@ -530,6 +515,7 @@ if __name__ == '__main__':
 
     # Translate CDS
     if in_args.translate:
+        in_place_allowed = True
         if guess_alphabet(in_args.translate) != "nucl":
             sys.exit("Error: you need to supply DNA or RNA sequences to translate")
         _print_recs(translate_cds(in_args.translate))
@@ -600,6 +586,7 @@ if __name__ == '__main__':
 
     # Hash sequence ids
     if in_args.hash_seq_ids:
+        in_place_allowed = True
         with open(os.path.abspath(in_args.hash_seq_ids), "r") as ifile:
             seq_format = guess_format(in_args.hash_seq_ids)
             seqs = list(SeqIO.parse(ifile, seq_format))
@@ -614,6 +601,7 @@ if __name__ == '__main__':
 
     # Clean Seq
     if in_args.clean_seq:
+        in_place_allowed = True
         seqs = clean_seq(in_args.clean_seq)
         output = ""
         for seq in seqs:
@@ -626,6 +614,7 @@ if __name__ == '__main__':
 
     # Map features from cDNA over to protein
     if in_args.map_features_dna2prot:
+        in_place_allowed = True
         dna, prot = in_args.map_features_dna2prot
         dna = os.path.abspath(dna)
         prot = os.path.abspath(prot)
@@ -652,6 +641,7 @@ if __name__ == '__main__':
 
     # Map features from protein over to cDNA
     if in_args.map_features_prot2dna:
+        in_place_allowed = True
         prot, dna = in_args.map_features_prot2dna
         dna = os.path.abspath(dna)
         prot = os.path.abspath(prot)
@@ -695,19 +685,3 @@ if __name__ == '__main__':
         for seq_id in new_seqs:
             new_seqs[seq_id].seq.alphabet = IUPAC.protein
             print(new_seqs[seq_id].format("gb"))
-
-    # Combine group of files into one
-    if in_args.combine_files:
-        if in_args.combine_files[-1].upper() == "TRUE":
-            mix_alphabet = True
-            files = in_args.combine_files[1:-1]
-        elif in_args.combine_files[-1].upper() == "FALSE":
-            mix_alphabet = False
-            files = in_args.combine_files[1:-1]
-        else:
-            mix_alphabet = False
-            files = in_args.combine_files[1:]
-
-        new_seqs = combine_files(files, mix_alphabet)
-        for seq in new_seqs:
-            print(seq.format(in_args.combine_files[0]))
