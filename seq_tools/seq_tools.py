@@ -389,6 +389,16 @@ def rename(_sequences, query, replace=""):
     return _new_seqs
 
 
+def delete_records(_sequences, search_str):
+    _new_seqs = []
+    for _seq in _sequences:
+        if _seq.description.find(search_str) != -1 or _seq.id.find(search_str) != -1 \
+                or _seq.name.find(search_str) != -1:
+            continue
+        else:
+            _new_seqs.append(_seq)
+    return _new_seqs
+
 # ################################################# COMMAND LINE UI ################################################## #
 if __name__ == '__main__':
     import argparse
@@ -425,6 +435,8 @@ if __name__ == '__main__':
     parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=2,
                         help="Get the ends (front or rear) of all sequences in a file."
                              "Arguments: <amount (int)> <front|rear>")
+    parser.add_argument('-dr', '--delete_records', action='store',
+                        help="Remove reocrds from a file. The deleted IDs are sent to stderr.")
     parser.add_argument('-fr', '--find_repeats', action='store_true',
                         help="Identify whether a file contains repeat sequences and/or sequence ids")
     parser.add_argument("-mg", "--merge", help="Group a bunch of seq files together", action="store_true")
@@ -438,10 +450,34 @@ if __name__ == '__main__':
     if in_args.format:
         out_format = in_args.format
     else:
-        out_format = "fasta"
+        out_format = guess_format(in_args.sequence[0])
 
     in_place_allowed = False
     seqs = _sequence_list(in_args.sequence[0])
+
+    # Delete records
+    if in_args.delete_records:
+        in_place_allowed = True
+
+        if in_args.params:
+            columns = int(in_args.params[0])
+        else:
+            columns = 1
+
+        counter = 1
+        deleted_seqs = pull_recs(seqs, in_args.delete_records)
+        if len(deleted_seqs) > 0:
+            output = "# Deleted records\n"
+            for seq in deleted_seqs:
+                output += "%s\t" % seq.id
+                if counter % columns == 0:
+                    output = "%s\n" % output.strip()
+                counter += 1
+            print(output.strip(), file=sys.stderr)
+            new_list = delete_records(seqs, in_args.delete_records)
+            _print_recs(new_list)
+        else:
+            print("No sequence identifiers match '%s'" % in_args.delete_records, file=sys.stderr)
 
     # Merge
     if in_args.merge:
@@ -486,7 +522,7 @@ if __name__ == '__main__':
             columns = 1
         output = ""
         counter = 1
-        for seq in _sequence_list(seqs):
+        for seq in seqs:
             output += "%s\t" % seq.id
             if counter % columns == 0:
                 output = "%s\n" % output.strip()
@@ -558,7 +594,7 @@ if __name__ == '__main__':
     # Hash sequence ids
     if in_args.hash_seq_ids:
         in_place_allowed = True
-        hashed = hash_seqeunce_ids(_sequence_list(seqs))
+        hashed = hash_seqeunce_ids(seqs)
         hash_table = "# Hash table\n"
         for seq in hashed[0]:
             hash_table += "%s,%s\n" % (seq[0], seq[1])
