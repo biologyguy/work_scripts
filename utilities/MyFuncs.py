@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 
 from multiprocessing import Process, cpu_count
-from subprocess import Popen
 from sys import stdout, exit, stderr
 from time import clock
-from random import choice
-from string import hexdigits
 from math import floor
 import os
-from tempfile import gettempdir, mkdtemp, TemporaryDirectory, TemporaryFile
-from shutil import copy, copytree, rmtree
+from tempfile import TemporaryDirectory, NamedTemporaryFile
+from shutil import copytree, rmtree
 
 
 # might be nice to change this to a class that tracks length of last print, so it can be fully cleared when \r is called
@@ -138,6 +135,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
 class TempDir():
     def __init__(self):
         self.dir = next(self._make_dir())
+        self.path = self.__str__()
 
     @staticmethod
     def _make_dir():
@@ -159,7 +157,7 @@ class TempDir():
 
 class TempFile():
     def __init__(self):
-        self.handle = TemporaryFile(mode='w+t')
+        self.handle = NamedTemporaryFile(mode='w+t')
 
     def write(self, content, mode="a"):
         if mode not in ["w", "a"]:
@@ -184,6 +182,9 @@ class TempFile():
         with open(location, "w") as ofile:
             ofile.write(self.read())
         return
+
+    def __str__(self):
+        return self.handle.name
 
 
 class SafetyValve():  # Use this class if you're afraid of an infinit loop
