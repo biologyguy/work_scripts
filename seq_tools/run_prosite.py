@@ -11,7 +11,6 @@ import datetime
 
 class Prosite():
     def __init__(self, sequence):  # Sequence is a protein SeqRecord object
-        self.tmp_file = TempFile()
         self.tmp_dir = TempDir()
         self.job_id = ""
         sequence.seq.alphabet = IUPAC.IUPACProtein()
@@ -19,15 +18,18 @@ class Prosite():
         self.outfile = ""
 
     def run_prosite(self, client_path):
-        self.tmp_file.write(str(self.sequence.seq))
-        self.tmp_file.close()
+        tmp_file = TempFile()
+        tmp_file.write(str(self.sequence.seq))
+        file_location = "%s/%s" % (self.tmp_dir, str(tmp_file).split("/")[-1])
+        tmp_file.save(file_location)
+
         output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 %s"
-                       % (client_path, self.tmp_dir.dir, self.sequence.id, self.tmp_file.file), shell=True,
+                       % (client_path, self.tmp_dir, self.sequence.id, file_location), shell=True,
                        stdout=PIPE).communicate()[0].decode()
 
         self.job_id = output.split("\n")[0]
 
-        with open("%s/%s.out.txt" % (self.tmp_dir.dir, self.sequence.id), "r") as in_file:
+        with open("%s/%s.out.txt" % (self.tmp_dir, self.sequence.id), "r") as in_file:
             self.outfile = in_file.read()
 
         for feature in self.outfile.split(">")[1:]:
@@ -108,4 +110,4 @@ if __name__ == '__main__':
     with open("%s" % fasta_file, "r") as ifile:
         sequences = list(SeqIO.parse(ifile, 'fasta'))
 
-    run_multicore_function(sequences[:3], run_prosite)
+    run_multicore_function(sequences, run_prosite)
