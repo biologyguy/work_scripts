@@ -44,7 +44,7 @@ def _set_alphabet(_sequences, alpha=None):  # update sequence alphabet in place
     return _sequences
 
 
-def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq object
+def sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq object
     if isinstance(sequence, list):
         _sequences = sequence
     elif os.path.isfile(sequence):
@@ -85,7 +85,7 @@ def _print_recs(_sequences):
 
 
 def rna2dna(_sequences):
-    _sequences = _sequence_list(_sequences)
+    _sequences = sequence_list(_sequences)
     _output = []
     for _seq in _sequences:
         _seq.seq = Seq(str(_seq.seq.back_transcribe()), alphabet=IUPAC.ambiguous_dna)
@@ -94,7 +94,7 @@ def rna2dna(_sequences):
 
 
 def dna2rna(_sequences):
-    _sequences = _sequence_list(_sequences)
+    _sequences = sequence_list(_sequences)
     _output = []
     for _seq in _sequences:
         _seq.seq = Seq(str(_seq.seq.transcribe()), alphabet=IUPAC.ambiguous_rna)
@@ -104,7 +104,7 @@ def dna2rna(_sequences):
 
 def guess_alphabet(_sequences):  # Does not handle ambigious dna
     if not isinstance(_sequences, list):
-        _sequences = _sequence_list(_sequences)
+        _sequences = sequence_list(_sequences)
 
     _sequence = ""
     for next_seq in _sequences:
@@ -123,7 +123,7 @@ def guess_alphabet(_sequences):  # Does not handle ambigious dna
 
 def translate_cds(_sequences):
     _output = []
-    _sequences = _sequence_list(_sequences)
+    _sequences = sequence_list(_sequences)
     for _seq in _sequences:
         try:
             _seq.seq = _seq.seq.translate(cds=True, to_stop=True)
@@ -144,7 +144,7 @@ def concat_seqs(_sequences):  # TODO: Add each concatinated sequence as a record
     _output = ""
     concat_ids = ""
     for _seq_list in _sequences:
-        _seq_list = _sequence_list(_seq_list)
+        _seq_list = sequence_list(_seq_list)
         _sequences = [_seq.seq for _seq in clean_seq(_seq_list)]
         _id_list = [_seq.id for _seq in clean_seq(_seq_list)]
         _output += "".join(_sequences)
@@ -156,7 +156,7 @@ def concat_seqs(_sequences):  # TODO: Add each concatinated sequence as a record
 
 def clean_seq(_sequences):  # from file or raw
     """remove fasta headers, numbers, and whitespace from sequence strings"""
-    _sequences = _sequence_list(_sequences)
+    _sequences = sequence_list(_sequences)
     _output = []
     for _seq in _sequences:
         _seq.seq = re.sub(">.*", "", str(_seq.seq))
@@ -392,7 +392,7 @@ def find_repeats(_sequences):
 
 
 def rename(_sequences, query, replace=""):
-    _sequences = _sequence_list(_sequences)
+    _sequences = sequence_list(_sequences)
     _new_seqs = []
     for _seq in _sequences:
         new_name = re.sub(query, replace, _seq.id)
@@ -466,7 +466,7 @@ if __name__ == '__main__':
         out_format = guess_format(in_args.sequence[0])
 
     in_place_allowed = False
-    seqs = _sequence_list(in_args.sequence[0])
+    seqs = sequence_list(in_args.sequence[0])
 
     # Delete records
     if in_args.delete_records:
@@ -496,13 +496,18 @@ if __name__ == '__main__':
     if in_args.merge:
         new_list = []
         for infile in in_args.sequence:
-            new_list += _sequence_list(infile)
+            new_list += sequence_list(infile)
         _print_recs(new_list)
 
     # Screw formats
     if in_args.screw_formats:
         in_place_allowed = True
         out_format = in_args.screw_formats
+        if in_args.in_place:
+            os.remove(in_args.sequence[0])
+            in_args.sequence[0] = ".".join(os.path.abspath(in_args.sequence[0]).split(".")[:-1]) + "." + out_format
+            open(in_args.sequence[0], "w").close()
+
         _print_recs(seqs)
 
     # Renaming
@@ -629,25 +634,29 @@ if __name__ == '__main__':
 
     # Guess format
     if in_args.guess_format:
-        print(guess_format(in_args.sequence[0]))
+        print(guess_format(seqs))
 
     # Map features from cDNA over to protein
     if in_args.map_features_dna2prot:
         in_place_allowed = True
         file1, file2 = in_args.sequence[:2]
 
-        file1 = _sequence_list(file1)
-        file2 = _sequence_list(file2)
+        file1 = sequence_list(file1)
+        file2 = sequence_list(file2)
 
         if guess_alphabet(file1) == guess_alphabet(file2):
             sys.exit("Error: You must provide one DNA file and one protein file")
 
-        dna = file2 if guess_alphabet(file2) == "nucl" else file1
-        prot = file1 if guess_alphabet(file1) == "prot" else file2
+        if guess_alphabet(file1) == "prot":
+            prot = file1
+            dna = file2
+        else:
+            in_args.sequence[0] = in_args.sequence[1]  # in case the -i flag is thrown
+            prot = file2
+            dna = file1
 
         new_seqs = map_features_dna2prot(dna, prot)
         out_format = "gb"
-        in_args.sequence[0] = in_args.sequence[1]
         _print_recs(new_seqs)
 
     # Map features from protein over to cDNA
@@ -655,24 +664,28 @@ if __name__ == '__main__':
         in_place_allowed = True
         file1, file2 = in_args.sequence[:2]
 
-        file1 = _sequence_list(file1)
-        file2 = _sequence_list(file2)
+        file1 = sequence_list(file1)
+        file2 = sequence_list(file2)
 
         if guess_alphabet(file1) == guess_alphabet(file2):
             sys.exit("Error: You must provide one DNA file and one protein file")
 
-        dna = file1 if guess_alphabet(file1) == "nucl" else file2
-        prot = file2 if guess_alphabet(file2) == "prot" else file1
+        if guess_alphabet(file1) == "nucl":
+            dna = file1
+            prot = file2
+        else:
+            in_args.sequence[0] = in_args.sequence[1]  # in case the -i flag is thrown
+            dna = file2
+            prot = file1
 
         new_seqs = map_features_prot2dna(prot, dna)
         out_format = "gb"
-        in_args.sequence[0] = in_args.sequence[1]
         _print_recs(new_seqs)
 
     # Combine feature sets from two files into one
     if in_args.combine_features:
         file1, file2 = in_args.sequence[:2]
-        file1 = _sequence_list(file1)
-        file2 = _sequence_list(file2)
+        file1 = sequence_list(file1)
+        file2 = sequence_list(file2)
         new_seqs = combine_features(file1, file2)
         _print_recs(new_seqs)
