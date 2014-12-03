@@ -3,7 +3,8 @@
 # Created on: Nov 20 2014 
 
 """
-DESCRIPTION OF PROGRAM
+Wraps a local install of the Octopus transmembrane prediction program (octopus.cbr.su.se).
+Input is a sequence file (Biopython compliant), and each predicted TMD is appended to the seq feature list for printing
 """
 import os
 import re
@@ -13,7 +14,7 @@ from Bio.Alphabet import IUPAC
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
 from MyFuncs import TempDir, run_multicore_function
-import seq_tools
+from seq_tools import seq_tools
 from subprocess import Popen
 from copy import copy
 
@@ -35,22 +36,22 @@ class AnnoTMD():
         sequence.seq = Seq(re.sub("\*", "", str(sequence.seq)), alphabet=sequence.seq.alphabet)
 
         tmp_dir = TempDir()
-        out_dir = "%s/output" % tmp_dir.dir
+        out_dir = "%s/output" % tmp_dir.path
         os.makedirs(out_dir)
 
-        with open("%s/%s.fa" % (tmp_dir.dir, sequence.id), "w") as ofile:
+        with open("%s/%s.fa" % (tmp_dir.path, sequence.id), "w") as ofile:
             SeqIO.write(sequence, ofile, "fasta")
 
-        with open("%s/NameFile.txt" % tmp_dir.dir, "w") as file:
+        with open("%s/NameFile.txt" % tmp_dir.path, "w") as file:
             file.write("%s\n" % sequence.id)
 
         popen_output = "> /dev/null 2>&1" if not debug else ""
         Popen("bloctopus %s/NameFile.txt %s %s /usr/local/bin/blastall /usr/local/bin/blastpgp %s "
               "/usr/local/bin/makemat -P%s" %
-              (tmp_dir.dir, tmp_dir.dir, out_dir, blastdb, popen_output), shell=True).wait()
+              (tmp_dir.path, tmp_dir.path, out_dir, blastdb, popen_output), shell=True).wait()
 
         Popen("octopus %s/NameFile.txt %s/PSSM_PRF_FILES %s/RAW_PRF_FILES %s -N%s"
-              % (tmp_dir.dir, out_dir, out_dir, out_dir, popen_output), shell=True).wait()
+              % (tmp_dir.path, out_dir, out_dir, out_dir, popen_output), shell=True).wait()
 
         with open("%s/%s.top" % (out_dir, sequence.id), "r") as ifile:
             top_file = SeqIO.read(ifile, "fasta", alphabet=IUPAC.protein)
@@ -88,6 +89,7 @@ if __name__ == '__main__':
                                                                           "a fasta file, and send the output somewhere")
 
     parser.add_argument("in_file", help="Location of DNA or protein fasta file", action="store")
+    # TODO Change this from an out_dir to out_file, using a temp dir and then seq_tools.merge()
     parser.add_argument("out_dir", help="Where do you want the new genbank files sent", action="store")
     parser.add_argument("blastdb", help="Path to BLASTP database used by Octopus", action="store")
 
@@ -97,7 +99,6 @@ if __name__ == '__main__':
         tmds = AnnoTMD(seq_rec, in_args.blastdb)
         tmds.save("%s/%s.gb" % (in_args.out_dir, seq_rec.id))
 
-    with open(in_args.in_file, "r") as ifile:
-        seqs = list(SeqIO.parse(ifile, "fasta"))
+    seqs = seq_tools.sequence_list(in_args.in_file)
 
     run_multicore_function(seqs, get_tmds)
