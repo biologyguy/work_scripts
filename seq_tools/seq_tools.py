@@ -20,19 +20,28 @@ from Bio.Alphabet import IUPAC
 from Bio.Data.CodonTable import TranslationError
 
 
+# ##################################################### WISH LIST #################################################### #
+def get_genbank_file():
+    x = 1
+
+
+def run_prosite():
+    x = 1
+
+
 # ################################################ INTERNAL FUNCTIONS ################################################ #
-def _set_alphabet(_seq_list, alpha=None):  # update sequence alphabet in place
+def _set_alphabet(_sequences, alpha=None):  # update sequence alphabet in place
     if not alpha:
-        alpha = guess_alphabet(_seq_list)
+        alpha = guess_alphabet(_sequences)
     if alpha == "nucl":
         alpha = IUPAC.ambiguous_dna
     elif alpha == "prot":
         alpha = IUPAC.protein
     else:
         sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
-    for i in range(len(_seq_list)):
-        _seq_list[i].seq.alphabet = alpha
-    return _seq_list
+    for i in range(len(_sequences)):
+        _sequences[i].seq.alphabet = alpha
+    return _sequences
 
 
 def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq object
@@ -42,8 +51,8 @@ def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Se
         _seq_format = guess_format(sequence)
         if not _seq_format:
             sys.exit("Error: could not determine the format of your input sequence file.")
-        with open(sequence, "r") as infile:
-            _sequences = list(SeqIO.parse(infile, _seq_format))
+        with open(sequence, "r") as _infile:
+            _sequences = list(SeqIO.parse(_infile, _seq_format))
     else:
         # dna_or_prot = IUPAC.protein if guess_alphabet(sequence) == "prot" else IUPAC.ambiguous_dna
         _sequences = [SeqRecord(Seq(sequence))]
@@ -51,10 +60,10 @@ def _sequence_list(sequence):  # Open a file and parse, or convert raw into a Se
     return _sequences
 
 
-def _print_recs(rec_list):
-    rec_list = _set_alphabet(rec_list)
+def _print_recs(_sequences):
+    _sequences = _set_alphabet(_sequences)
     _output = ""
-    for _rec in rec_list:
+    for _rec in _sequences:
         try:
             _output += _rec.format(out_format) + "\n"
         except ValueError as e:
@@ -158,75 +167,79 @@ def clean_seq(_sequences):  # from file or raw
     return _output  # returns a list of cleaned sequence objects
 
 
-def guess_format(in_file):
+def guess_format(file_path):
     # currently just looks at file extension, but might want to get more fancy
-    if not os.path.isfile(in_file):
+    if not os.path.isfile(file_path):
         return None
 
-    in_file = in_file.split(".")
-    if in_file[-1] in ["fa", "fas", "fasta"]:
+    file_path = file_path.split(".")
+    if file_path[-1] in ["fa", "fas", "fasta"]:
         return "fasta"
-    if in_file[-1] in ["gb", "genbank"]:
+    if file_path[-1] in ["gb", "genbank"]:
         return "gb"
-    if in_file[-1] in ["nex", "nxs", "nexus"]:
+    if file_path[-1] in ["nex", "nxs", "nexus"]:
         return "nexus"
-    if in_file[-1] in ["phy", "ph", "phylip"]:
+    if file_path[-1] in ["phy", "ph", "phylip"]:
         return "phylip-relaxed"
-    if in_file[-1] in ["sto", "pfam", "stockholm"]:
+    if file_path[-1] in ["sto", "pfam", "stockholm"]:
         return "stockholm"
     return None
 
 
 # Apply DNA features to protein sequences
-def map_features_dna2prot(dna_seqs, prot_seqs, quiet=False):  # Input as SeqIO.to_dict objects.
+def map_features_dna2prot(dna_seqs, prot_seqs):
+    prot_dict = SeqIO.to_dict(prot_seqs)
+    dna_dict = SeqIO.to_dict(dna_seqs)
     _new_seqs = {}
-    for _seq_id in dna_seqs:
-        if _seq_id not in prot_seqs:
-            if not quiet:
-                print("Warning: %s is in cDNA file, but not protein file" % _seq_id, file=sys.stderr)
-            continue
-
-        _new_seqs[_seq_id] = prot_seqs[_seq_id]
-
-        for feature in dna_seqs[_seq_id].features:
-            start = ceil(feature.location.start / 3)
-            end = ceil(feature.location.end / 3)
-            new_feature = SeqFeature(location=FeatureLocation(start, end), type=feature.type)
-            prot_seqs[_seq_id].features.append(new_feature)
-
-    for _seq_id in prot_seqs:
-        if _seq_id not in dna_seqs:
-            if not quiet:
-                print("Warning: %s is in protein file, but not the cDNA file" % _seq_id, file=sys.stderr)
-
-    return _new_seqs
-
-
-# Apply DNA features to protein sequences
-def map_features_prot2dna(prot_seqs, dna_seqs):  # Input as SeqIO.to_dict objects.
-    _new_seqs = {}
-    for _seq_id in prot_seqs:
-        if _seq_id not in dna_seqs:
+    for _seq_id in dna_dict:
+        if _seq_id not in prot_dict:
             print("Warning: %s is in protein file, but not cDNA file" % _seq_id, file=sys.stderr)
             continue
 
-        _new_seqs[_seq_id] = dna_seqs[_seq_id]
+        _new_seqs[_seq_id] = prot_dict[_seq_id]
 
-        for feature in prot_seqs[_seq_id].features:
+        for feature in dna_dict[_seq_id].features:
+            start = (feature.location.start + 2) / 3
+            end = feature.location.end / 3
+            new_feature = SeqFeature(location=FeatureLocation(ceil(start), ceil(end)), type=feature.type)
+            prot_dict[_seq_id].features.append(new_feature)
+
+    for _seq_id in prot_dict:
+        if _seq_id not in dna_dict:
+            print("Warning: %s is in cDNA file, but not protein file" % _seq_id, file=sys.stderr)
+
+    _seqs_list = [_new_seqs[_seq_id] for _seq_id in _new_seqs]
+    return _seqs_list
+
+
+# Apply DNA features to protein sequences
+def map_features_prot2dna(prot_seqs, dna_seqs):
+    prot_dict = SeqIO.to_dict(prot_seqs)
+    dna_dict = SeqIO.to_dict(dna_seqs)
+    _new_seqs = {}
+    for _seq_id in prot_dict:
+        if _seq_id not in dna_dict:
+            print("Warning: %s is in protein file, but not cDNA file" % _seq_id, file=sys.stderr)
+            continue
+
+        _new_seqs[_seq_id] = dna_dict[_seq_id]
+
+        for feature in prot_dict[_seq_id].features:
             start = feature.location.start * 3 - 2
             end = feature.location.end * 3
             new_feature = SeqFeature(location=FeatureLocation(start, end), type=feature.type)
-            dna_seqs[_seq_id].features.append(new_feature)
+            dna_dict[_seq_id].features.append(new_feature)
 
-    for _seq_id in dna_seqs:
-        if _seq_id not in prot_seqs:
+    for _seq_id in dna_dict:
+        if _seq_id not in prot_dict:
             print("Warning: %s is in cDNA file, but not protein file" % _seq_id, file=sys.stderr)
 
-    return _new_seqs
+    _seqs_list = [_new_seqs[_seq_id] for _seq_id in _new_seqs]
+    return _seqs_list
 
 
 # Merge feature lists
-def combine_features(seqs1, seqs2):
+def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
     # make sure there are no repeat ids
     _unique, _rep_ids, _rep_seqs = find_repeats(seqs1)
     if len(_rep_ids) > 0:
@@ -364,17 +377,17 @@ def find_repeats(_sequences):
             del(unique_seqs[key])
 
     for key, value in repeat_ids.items():  # find duplicates in the repeat ID list
-        for blahh in value:
-            blahh = str(blahh.seq)
-            if blahh not in flip_uniqe:
-                flip_uniqe[blahh] = [key]
+        for rep_seq in value:
+            rep_seq = str(rep_seq.seq)
+            if rep_seq not in flip_uniqe:
+                flip_uniqe[rep_seq] = [key]
             else:
-                if blahh not in repeat_seqs:
-                    repeat_seqs[blahh] = [key]
-                    repeat_seqs[blahh] += flip_uniqe[blahh]
+                if rep_seq not in repeat_seqs:
+                    repeat_seqs[rep_seq] = [key]
+                    repeat_seqs[rep_seq] += flip_uniqe[rep_seq]
 
                 else:
-                    repeat_seqs[blahh].append(key)
+                    repeat_seqs[rep_seq].append(key)
     return [unique_seqs, repeat_ids, repeat_seqs]
 
 
@@ -419,10 +432,10 @@ if __name__ == '__main__':
                         help="Counts how many sequences are present in an input file")
     parser.add_argument('-cts', '--concat_seqs', action='store_true',
                         help="Concatenate a bunch of sequences into a single solid string.")
-    parser.add_argument('-fd2p', '--map_features_dna2prot', action='store', nargs=2,
-                        help="Arguments: <nucl_gb_file> <prot_file>")  # Modify for new convention
-    parser.add_argument('-fp2d', '--map_features_prot2dna', action='store', nargs=2,
-                        help="Arguments: <prot_gb_file> <nucl_file>")  # Modify for new convention
+    parser.add_argument('-fd2p', '--map_features_dna2prot', action='store_true',
+                        help="Arguments: one cDNA file and one protein file")
+    parser.add_argument('-fp2d', '--map_features_prot2dna', action='store_true',
+                        help="Arguments: one cDNA file and one protein file")
     parser.add_argument('-ri', '--rename_ids', action='store', nargs=2,
                         help="Arguments: <pattern> <substitution>")
     parser.add_argument('-cf', '--combine_features', action='store_true',
@@ -621,56 +634,40 @@ if __name__ == '__main__':
     # Map features from cDNA over to protein
     if in_args.map_features_dna2prot:
         in_place_allowed = True
-        dna, prot = in_args.map_features_dna2prot
-        dna = os.path.abspath(dna)
-        prot = os.path.abspath(prot)
+        file1, file2 = in_args.sequence[:2]
 
-        if guess_format(dna) != "gb":
-            sys.exit("Error: first argument must be genbank format")
-        if guess_alphabet(dna) != "nucl":
-            sys.exit("Error: first argument must be the dna sequence")
-        if not guess_format(prot):
-            sys.exit("Error: couldn't determine the format of your protein sequence")
-        if guess_alphabet(prot) != "prot":
-            sys.exit("Error: second argument must be the protein sequence")
+        file1 = _sequence_list(file1)
+        file2 = _sequence_list(file2)
 
-        with open(dna, "r") as ifile:
-            dna = SeqIO.to_dict(SeqIO.parse(ifile, "gb"))
+        if guess_alphabet(file1) == guess_alphabet(file2):
+            sys.exit("Error: You must provide one DNA file and one protein file")
 
-        with open(prot, "r") as ifile:
-            prot = SeqIO.to_dict(SeqIO.parse(ifile, guess_format(prot)))
+        dna = file2 if guess_alphabet(file2) == "nucl" else file1
+        prot = file1 if guess_alphabet(file1) == "prot" else file2
 
         new_seqs = map_features_dna2prot(dna, prot)
-        for seq_id in new_seqs:
-            new_seqs[seq_id].seq.alphabet = IUPAC.protein
-            print(new_seqs[seq_id].format("gb"))
+        out_format = "gb"
+        in_args.sequence[0] = in_args.sequence[1]
+        _print_recs(new_seqs)
 
     # Map features from protein over to cDNA
     if in_args.map_features_prot2dna:
         in_place_allowed = True
-        prot, dna = in_args.map_features_prot2dna
-        dna = os.path.abspath(dna)
-        prot = os.path.abspath(prot)
+        file1, file2 = in_args.sequence[:2]
 
-        if guess_format(prot) != "gb":
-            sys.exit("Error: first argument must be genbank format")
-        if guess_alphabet(prot) != "prot":
-            sys.exit("Error: first argument must be the protein sequence")
-        if not guess_format(dna):
-            sys.exit("Error: couldn't determine the format of your dna sequence")
-        if guess_alphabet(dna) != "nucl":
-            sys.exit("Error: second argument must be the dna sequence")
+        file1 = _sequence_list(file1)
+        file2 = _sequence_list(file2)
 
-        with open(prot, "r") as ifile:
-            prot = SeqIO.to_dict(SeqIO.parse(ifile, "gb"))
+        if guess_alphabet(file1) == guess_alphabet(file2):
+            sys.exit("Error: You must provide one DNA file and one protein file")
 
-        with open(dna, "r") as ifile:
-            dna = SeqIO.to_dict(SeqIO.parse(ifile, guess_format(dna)))
+        dna = file1 if guess_alphabet(file1) == "nucl" else file2
+        prot = file2 if guess_alphabet(file2) == "prot" else file1
 
         new_seqs = map_features_prot2dna(prot, dna)
-        for seq_id in new_seqs:
-            new_seqs[seq_id].seq.alphabet = IUPAC.ambiguous_dna
-            print(new_seqs[seq_id].format("gb"))
+        out_format = "gb"
+        in_args.sequence[0] = in_args.sequence[1]
+        _print_recs(new_seqs)
 
     # Combine feature sets from two files into one
     if in_args.combine_features:
