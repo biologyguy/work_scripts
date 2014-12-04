@@ -61,6 +61,9 @@ def sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq
 
 
 def _print_recs(_sequences):
+    if len(_sequences) == 0:
+        print("Nothing returned.", file=sys.stderr)
+        return False
     _sequences = _set_alphabet(_sequences)
     _output = ""
     for _rec in _sequences:
@@ -71,7 +74,8 @@ def _print_recs(_sequences):
 
     if in_args.in_place and in_place_allowed:
         if not os.path.exists(in_args.sequence[0]):
-            print("Error: The -i flag was passed in, but the positional argument doesn't seem to be a file",
+            print("Warning: The -i flag was passed in, but the positional argument doesn't seem to be a file. Nothing "
+                  "was written.",
                   file=sys.stderr)
             print(_output.strip())
         else:
@@ -105,14 +109,14 @@ def dna2rna(_sequences):
 def guess_alphabet(_sequences):  # Does not handle ambigious dna
     if not isinstance(_sequences, list):
         _sequences = sequence_list(_sequences)
-
     _sequence = ""
     for next_seq in _sequences:
         if len(_sequence) > 1000:
             break
-        _sequence += str(next_seq.seq)
-    _sequence = re.sub("[NX]", "", _sequence)
+        _sequence += re.sub("[NX\-?]", "", str(next_seq.seq))
 
+    if len(_sequence) == 0:
+        return None
     percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
                         _sequence.count("C") + _sequence.count("U")) / float(len(_sequence))
     if percent_dna > 0.95:
@@ -140,17 +144,28 @@ def translate_cds(_sequences):
     return _output
 
 
-def concat_seqs(_sequences):  # TODO: Add each concatinated sequence as a record feature
-    _output = ""
-    concat_ids = ""
+def concat_seqs(_sequences):
+    _new_seq = ""
+    concat_ids = []
+    features = []
+    alpha = None
     for _seq_list in _sequences:
-        _seq_list = sequence_list(_seq_list)
-        _sequences = [_seq.seq for _seq in clean_seq(_seq_list)]
-        _id_list = [_seq.id for _seq in clean_seq(_seq_list)]
-        _output += "".join(_sequences)
-        concat_ids += "|".join(_id_list)
-    alpha = guess_alphabet(_output)
-    _output = [SeqRecord(Seq(_output, alphabet=alpha), description=concat_ids, id="concatination")]
+        _seqs = sequence_list(_seq_list)
+        if not alpha:
+            alpha = guess_alphabet(_seqs)
+        elif alpha != guess_alphabet(_seq_list):
+            sys.exit("Error: You are trying to concatinate protein and nucleotide sequences together")
+
+        for _seq in _seqs:
+            location = FeatureLocation(len(_new_seq), len(_new_seq) + len(str(_seq.seq)))
+            feature = SeqFeature(location=location, id=_seq.id, type=_seq.id[:15])
+            features.append(feature)
+            concat_ids.append(_seq.id)
+            _new_seq += str(_seq.seq)
+
+    concat_ids = "|".join(concat_ids)
+
+    _output = [SeqRecord(Seq(_new_seq, alphabet=alpha), description=concat_ids, id="concatination", features=features)]
     return _output
 
 
@@ -265,16 +280,14 @@ def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
             error_mes = "You have mixed multiple alphabets into your sequences. Make sure everything is the same.\n" \
                         "\t%s in first set\n\tOffending alphabet: %s\n\tReference alphabet: %s" \
                         % (_seq_id, seq_dict1[_seq_id].seq.alphabet, reference_alphabet)
-            print(error_mes, file=sys.stderr)
-            return False
+            sys.exit(error_mes)
 
     for _seq_id in seq_dict2:
         if type(seq_dict2[_seq_id].seq.alphabet) != type(reference_alphabet):
             error_mes = "You have mixed multiple alphabets into your sequences. Make sure everything is the same.\n" \
                         "\t%s in first set\n\tOffending alphabet: %s\n\tReference alphabet: %s" \
                         % (_seq_id, seq_dict2[_seq_id].seq.alphabet, reference_alphabet)
-            print(error_mes, file=sys.stderr)
-            return False
+            sys.exit(error_mes)
 
     _new_seqs = {}
     for _seq_id in seq_dict1:
