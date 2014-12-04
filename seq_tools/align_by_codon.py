@@ -6,7 +6,6 @@ from Bio.Alphabet import IUPAC
 import argparse
 import sys
 import re
-import shutil
 from MyFuncs import *
 from subprocess import Popen
 from copy import copy
@@ -61,34 +60,34 @@ with open(in_file, "r") as ifile:
 
 # Create protein translation
 prot_file = TempFile()
-ofile = open(prot_file.file, "w")
+prot_file.open()
 with open(in_file, "r") as ifile:
     sequences = SeqIO.parse(ifile, "fasta")
     for seq in sequences:
         seq.seq = seq.seq.translate(to_stop=True)
         seq.alphabet = IUPAC.protein
-        SeqIO.write(seq, ofile, "fasta")
+        SeqIO.write(seq, prot_file.handle, "fasta")
 
-ofile.close()
+prot_file.close()
 
 out_file = TempFile()
 print("Running alignment on translation", file=sys.stderr)
 
 if in_args.algorithm == "mafft":
-    Popen("mafft %s %s > %s" % (params, prot_file.file, out_file.file), shell=True).wait()
+    Popen("mafft %s %s > %s" % (params, prot_file.path, out_file.path), shell=True).wait()
 
 elif in_args.algorithm == "muscle":
-    Popen("muscle -in %s -out %s %s" % (prot_file.file, out_file.file, params), shell=True).wait()
+    Popen("muscle -in %s -out %s %s" % (prot_file.path, out_file.path, params), shell=True).wait()
 
 print("Converting translated alignment back to codons", file=sys.stderr)
-prot_alignment_file = open(out_file.file, "r")
+out_file.open("r")
 dna_file = open(in_file, "r")
 
 if in_args.save_tmp:
     location = in_file.split("/")[-1].split(".")[:-1]
-    shutil.copy(out_file.file, "%s/%s_aln_prot.fa" % (os.path.abspath(in_args.save_tmp), "_".join(location)))
+    out_file.save("%s/%s_aln_prot.fa" % (os.path.abspath(in_args.save_tmp), "_".join(location)))
 
-alignment = next(AlignIO.parse(prot_alignment_file, "fasta",))
+alignment = next(AlignIO.parse(out_file.handle, "fasta",))
 alignment = list(alignment)
 
 sequences = SeqIO.to_dict(SeqIO.parse(dna_file, "fasta"))
@@ -114,7 +113,7 @@ for i in range(len(alignment)):
 
     new_alignment.append(new_seq)
 
-prot_alignment_file.close()
+out_file.close()
 dna_file.close()
 
 for seq in new_alignment:
