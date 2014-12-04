@@ -26,10 +26,26 @@ class NewClass():
         return self.x
 
 
-def def1():
-    """DESCRIPTION OF FUNC"""
-    x = 1
-    return x
+def screw_formats_align(_alignments, _out_format):
+    _output = ""
+    if _out_format == "phylipi":
+        if len(_alignments) > 1:
+            print("Warning: the input file contained more than one alignment, but phylip can only handle one. "
+                  "The topmost alignment is shown here.", file=sys.stderr)
+        _seqs = list(_alignments[0])
+        _output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
+        max_id_length = 0
+        for _seq in _seqs:
+            max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
+
+        for _seq in _seqs:
+            _seq_id = _seq.id.ljust(max_id_length)
+            _output += "%s %s\n" % (_seq_id, _seq.seq)
+    else:
+        for alignment in _alignments:
+            _output += alignment.format(_out_format)
+
+    return _output
 
 
 def def2():
