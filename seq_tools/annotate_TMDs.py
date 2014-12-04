@@ -6,7 +6,8 @@
 Wraps a local install of the Octopus transmembrane prediction program (octopus.cbr.su.se).
 Input is a sequence file (Biopython compliant), and each predicted TMD is appended to the seq feature list for printing
 """
-import os
+from os import makedirs
+from os.path import abspath, isdir
 import re
 from Bio.Seq import Seq
 from Bio.SeqFeature import SeqFeature, FeatureLocation
@@ -14,7 +15,7 @@ from Bio.Alphabet import IUPAC
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
 from MyFuncs import TempDir, run_multicore_function
-from seq_tools import seq_tools
+import seq_tools
 from subprocess import Popen
 from copy import copy
 
@@ -37,7 +38,7 @@ class AnnoTMD():
 
         tmp_dir = TempDir()
         out_dir = "%s/output" % tmp_dir.path
-        os.makedirs(out_dir)
+        makedirs(out_dir)
 
         with open("%s/%s.fa" % (tmp_dir.path, sequence.id), "w") as ofile:
             SeqIO.write(sequence, ofile, "fasta")
@@ -72,7 +73,7 @@ class AnnoTMD():
         self.top_file = top_file
 
     def save(self, out_file):
-        out_file = os.path.abspath(out_file)
+        out_file = abspath(out_file)
         with open(out_file, "w") as ofile:
             SeqIO.write(self.sequence, ofile, "gb")
 
@@ -94,6 +95,9 @@ if __name__ == '__main__':
     parser.add_argument("blastdb", help="Path to BLASTP database used by Octopus", action="store")
 
     in_args = parser.parse_args()
+
+    if not isdir(abspath(in_args.out_dir)):
+        makedirs(abspath(in_args.out_dir))
 
     def get_tmds(seq_rec):
         tmds = AnnoTMD(seq_rec, in_args.blastdb)
