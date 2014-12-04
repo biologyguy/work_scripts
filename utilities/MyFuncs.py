@@ -5,7 +5,7 @@ from sys import stdout, exit, stderr
 from time import clock
 from math import floor
 import os
-from tempfile import TemporaryDirectory, NamedTemporaryFile
+from tempfile import TemporaryDirectory
 from shutil import copytree, rmtree
 
 
@@ -42,7 +42,7 @@ def pretty_time(seconds):
 
 def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False):
         # fun little piece of abstraction here... directly pass in a function that is going to be looped over, and
-        # fork those loops onto independent processors. Any arguments the function needs must be provided as a list.
+        # fork those loops onto independent processes. Any arguments the function needs must be provided as a list.
         cpus = cpu_count()
         if max_processes == 0:
             if cpus > 7:
@@ -135,13 +135,12 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
 class TempDir():
     def __init__(self):
         self.dir = next(self._make_dir())
-        self.path = self.__str__()
+        self.path = self.dir.name
 
-    @staticmethod
-    def _make_dir():
+    def _make_dir(self):
         tmp_dir = TemporaryDirectory()
         yield tmp_dir
-        rmtree(tmp_dir.name)
+        rmtree(self.path)
 
     def save(self, location):
         if os.path.isdir(location):
@@ -151,40 +150,57 @@ class TempDir():
             copytree(self.dir.name, location)
             return True
 
-    def __str__(self):
-        return self.dir.name
-
 
 class TempFile():
+    # I really don't like the behavior of tempfile.[Named]TemporaryFile(), so hack TemporaryDirectory() via TempDir()
     def __init__(self):
-        self.handle = NamedTemporaryFile(mode='w+t')
+        self._tmp_dir = TempDir()  # This needs to be a persistent (ie self.) variable, or the directory will be deleted
+        dir_hash = self._tmp_dir.path.split("/")[-1]
+        self.path = "%s/%s" % (self._tmp_dir.path, dir_hash)
+        self.handle = None
+
+    def open(self, mode="w"):
+        if not self.handle:
+            self.handle = open(self.path, mode)
+
+    def close(self):
+        if self.handle:
+            self.handle.close()
+            self.handle = None
 
     def write(self, content, mode="a"):
         if mode not in ["w", "a"]:
             print("Write Error: mode must be 'w' or 'a' in TempFile.write()", file=stderr)
             return False
+        already_open = True if self.handle else False
+        if not already_open:
+            self.open(mode)
         if mode == "a":
             self.handle.write(content)
         else:
             self.handle.truncate(0)
             self.handle.write(content)
+        if not already_open:
+            self.close()
         return True
 
-    def home(self):
-        self.handle.seek(0)
-        return
-
     def read(self):
-        self.handle.seek(0)
-        return self.handle.read()
+        already_open = True if self.handle else False
+        position = 0
+        if already_open:
+            position = self.handle.tell()
+            self.close()
+        with open(self.path, "r") as ifile:
+            content = ifile.read()
+        if already_open:
+            self.open(mode="a")
+            self.handle.seek(position)
+        return content
 
     def save(self, location):
         with open(location, "w") as ofile:
             ofile.write(self.read())
         return
-
-    def __str__(self):
-        return self.handle.name
 
 
 class SafetyValve():  # Use this class if you're afraid of an infinit loop
