@@ -7,6 +7,7 @@ import re
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.Alphabet import IUPAC
 import datetime
+import seq_tools
 
 
 class Prosite():
@@ -20,11 +21,9 @@ class Prosite():
     def run_prosite(self, client_path):
         tmp_file = TempFile()
         tmp_file.write(str(self.sequence.seq))
-        file_location = "%s/%s" % (self.tmp_dir, str(tmp_file).split("/")[-1])
-        tmp_file.save(file_location)
 
         output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 %s"
-                       % (client_path, self.tmp_dir, self.sequence.id, file_location), shell=True,
+                       % (client_path, self.tmp_dir, self.sequence.id, tmp_file.path), shell=True,
                        stdout=PIPE).communicate()[0].decode()
 
         self.job_id = output.split("\n")[0]
@@ -55,9 +54,8 @@ def run_interproscan(sequence, interpro_output_dir):  # This had not been fully 
     tmp_file = TempFile()
     sequence.id = sequence.id
     tmp_file.write(str(sequence.seq))
-    tmp_file.close()
     output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 --service interpro %s"
-                   % (prosite_scan_client, interpro_output_dir, sequence.id, tmp_file.file), shell=True,
+                   % (prosite_scan_client, interpro_output_dir, sequence.id, tmp_file.path), shell=True,
                    stdout=PIPE).communicate()[0].decode()
 
     project_id = output.split("\n")[0]
@@ -86,14 +84,14 @@ if __name__ == '__main__':
                                                                         " genbank file full of sequences annotated with"
                                                                         " prosite motifs.")
 
-    parser.add_argument("fasta_file", help="Where are the sequences you want analized", action="store")
+    parser.add_argument("in_file", help="Where are the sequences you want analized", action="store")
     parser.add_argument("gb_file", help="Where would you like the output saved?", action="store")
     parser.add_argument("prosite_client", help="Location of ps_scan_py3.py", action="store")
 
     in_args = parser.parse_args()
 
-    fasta_file = in_args.fasta_file  # "/Users/bondsr/Documents/Work/Innexin_evolution/Ctenophores/Ctenos_pep_fulls.fa"
-    gb_file = os.path.abspath(in_args.gb_file)  # "/Users/bondsr/Documents/Work/Innexin_evolution/prosite_scan_files"
+    sequences = seq_tools.sequence_list(in_args.in_file)
+    gb_file = os.path.abspath(in_args.gb_file)
     prosite_scan_client = in_args.prosite_client  # "/Users/bondsr/Documents/public_scripts/ps_scan_py3.py"
 
     lock = Lock()
@@ -106,8 +104,5 @@ if __name__ == '__main__':
         with lock:
             with open(gb_file, "a") as out_file:
                 SeqIO.write(sequence, out_file, "gb")
-
-    with open("%s" % fasta_file, "r") as ifile:
-        sequences = list(SeqIO.parse(ifile, 'fasta'))
 
     run_multicore_function(sequences, run_prosite)
