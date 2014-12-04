@@ -18,6 +18,30 @@ from subprocess import Popen
 from time import clock
 import MyFuncs
 import seq_tools
+# from workshop.alignBuddy import screw_formats_align
+
+
+# !!! Replace this with a module at some point...
+def screw_formats_align(_alignments, _out_format):
+    _output = ""
+    if _out_format == "phylipi":
+        if len(_alignments) > 1:
+            print("Warning: the input file contained more than one alignment, but phylip can only handle one. "
+                  "The topmost alignment is shown here.", file=sys.stderr)
+        _seqs = list(_alignments[0])
+        _output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
+        max_id_length = 0
+        for _seq in _seqs:
+            max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
+
+        for _seq in _seqs:
+            _seq_id = _seq.id.ljust(max_id_length)
+            _output += "%s %s\n" % (_seq_id, _seq.seq)
+    else:
+        for alignment in _alignments:
+            _output += alignment.format(_out_format)
+
+    return _output
 
 
 def make_cfg(location, _blocks, phylip_file):
@@ -201,14 +225,14 @@ for block in blocks:
 
     alignment = AlignIO.read(infile, seq_tools.guess_format(path))
 
-    clean_alignment = seq_tools.screw_formats_align([alignment], "phylipi")
+    clean_alignment = screw_formats_align([alignment], "phylipi")
     phylip.write(clean_alignment)
 
     id_hashes = seq_tools.hash_seqeunce_ids(list(alignment))
     for i in id_hashes[0]:
         hash_map.write("%s,%s\n" % (i[0], i[1]))
 
-    alignment = seq_tools.screw_formats_align([alignment], "phylipi")
+    alignment = screw_formats_align([alignment], "phylipi")
     hashed_phylip.write(alignment)
 
     infile.close()
@@ -224,12 +248,13 @@ for block in blocks:
     make_cfg(new_dir, seq_ranges, file_name)
     if in_args.run_partfinder:
         os.chdir(new_dir)
-        program = "partitionfinder" if in_args.type == "nucl" else "partitionfinderprotein"
 
-        if in_args.force:
-            Popen("%s --force-restart ./" % program, shell=True).wait()
-        else:
-            Popen("%s ./" % program, shell=True).wait()
+        program = "partitionfinder" if in_args.type == "nucl" else "partitionfinderprotein"
+        program += " --raxml" if in_args.algorithm != "greedy" else ""
+        program += " --force-restart" if in_args.force else ""
+
+        Popen("%s ./" % program, shell=True).wait()
+
         os.chdir(csv_dir)
 
 print("Job complete, it ran in %s" % MyFuncs.pretty_time(round(clock()) - start_time))
