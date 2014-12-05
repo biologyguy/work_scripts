@@ -48,7 +48,10 @@ def sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq
     if isinstance(sequence, list):
         _sequences = sequence
     elif os.path.isfile(sequence):
-        _seq_format = guess_format(sequence)
+        if in_args.read_format:
+            _seq_format = in_args.read_format
+        else:
+            _seq_format = guess_format(sequence)
         if not _seq_format:
             sys.exit("Error: could not determine the format of your input sequence file.")
         with open(sequence, "r") as _infile:
@@ -481,6 +484,7 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
     parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
+    parser.add_argument('-r', '--read_format', help="If the file extension isn't sane, set in format", action='store')
     
     in_args = parser.parse_args()
 
