@@ -10,7 +10,7 @@ import sys
 import os
 import re
 import string
-from random import sample, choice
+from random import sample, choice, randint
 from math import ceil
 from Bio import SeqIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
@@ -86,6 +86,15 @@ def _print_recs(_sequences):
         print(_output.strip())
 
 # #################################################################################################################### #
+
+
+def shuffle(_sequences):
+    _sequences = sequence_list(_sequences)
+    _output = []
+    for _ in range(len(_sequences)):
+        random_index = randint(1, len(_sequences)) - 1
+        _output.append(_sequences.pop(random_index))
+    return _output
 
 
 def rna2dna(_sequences):
@@ -454,6 +463,8 @@ if __name__ == '__main__':
     parser.add_argument('-cf', '--combine_features', action='store_true',
                         help="Takes the features in two files and combines them for each sequence")
     parser.add_argument('-sf', '--screw_formats', action='store', help="Arguments: out_format>")
+    parser.add_argument('-sh', '--shuffle', action='store_true',
+                        help="Randomly reorder the position of records in the file.")
     parser.add_argument('-hsi', '--hash_seq_ids', action='store_true',
                         help="Rename all the identifiers in a sequence list to a 10 character hash.")
     parser.add_argument('-pr', '--pull_records', action='store',
@@ -480,6 +491,11 @@ if __name__ == '__main__':
 
     in_place_allowed = False
     seqs = sequence_list(in_args.sequence[0])
+
+    # Shuffle
+    if in_args.shuffle:
+        in_place_allowed = True
+        _print_recs(shuffle(seqs))
 
     # Delete records
     if in_args.delete_records:
