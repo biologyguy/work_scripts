@@ -9,10 +9,26 @@ from tempfile import TemporaryDirectory
 from shutil import copytree, rmtree
 
 
-# might be nice to change this to a class that tracks length of last print, so it can be fully cleared when \r is called
-def dynamic_print(output):
-    stdout.write("\r%s\r%s" % (" " * 100, output),)
-    stdout.flush()
+# maybe use curses library in the future to extend this for multi-line printing
+class DynamicPrint():
+    def __init__(self):
+        self._last_print = ""
+        self._next_print = ""
+        self._writer = self._write()
+
+    def _write(self):
+        try:
+            while True:
+                stdout.write("\r%s\r%s" % (" " * len(self._last_print), self._next_print),)
+                stdout.flush()
+                self._last_print = self._next_print
+                yield
+        finally:
+            stdout.write("\n")
+
+    def write(self, content):
+        self._next_print = content
+        next(self._writer)
 
 
 def pretty_time(seconds):
@@ -43,6 +59,7 @@ def pretty_time(seconds):
 def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False):
         # fun little piece of abstraction here... directly pass in a function that is going to be looped over, and
         # fork those loops onto independent processes. Any arguments the function needs must be provided as a list.
+        d_print = DynamicPrint()
         cpus = cpu_count()
         if max_processes == 0:
             if cpus > 7:
@@ -66,7 +83,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
             print("Running function %s() on %s cores" % (function.__name__, max_processes))
         # fire up the multi-core!!
         if not quiet:
-            dynamic_print("\tJob 0 of %s" % len(iterable))
+            d_print.write("\tJob 0 of %s" % len(iterable))
     
         for next_iter in iterable:
             if type(iterable) is dict:
@@ -75,7 +92,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                 if running_processes < max_processes:
                     # Start new process
                     if not quiet:
-                        dynamic_print("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
+                        d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
 
                     if func_args:
                         if not isinstance(func_args, list):
@@ -103,14 +120,14 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                         if (start_time + elapsed) < round(clock()):
                             elapsed = round(clock()) - start_time
                             if not quiet:
-                                dynamic_print("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
+                                d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
 
                         if running_processes < max_processes:
                             break
 
         # wait for remaining processes to complete --> this is the same code as the processor wait loop above
         if not quiet:
-            dynamic_print("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
+            d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
 
         while len(child_list) > 0:
             for i in range(len(child_list)):
@@ -123,7 +140,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
             if (start_time + elapsed) < round(clock()):
                 elapsed = round(clock()) - start_time
                 if not quiet:
-                    dynamic_print("\t%s total jobs (%s, %s jobs remaining)" % (len(iterable), pretty_time(elapsed),
+                    d_print.write("\t%s total jobs (%s, %s jobs remaining)" % (len(iterable), pretty_time(elapsed),
                                                                                len(child_list)))
             
         if not quiet:

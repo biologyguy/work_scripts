@@ -7,7 +7,7 @@ Set a timer
 """
 
 from time import time, sleep
-from MyFuncs import dynamic_print, pretty_time
+from MyFuncs import DynamicPrint, pretty_time
 import argparse
 
 parser = argparse.ArgumentParser(prog="timer.py", description="Simple command line timer",
@@ -21,10 +21,11 @@ in_args = parser.parse_args()
 start = round(time())
 end = start + in_args.length
 if not in_args.quiet:
+    dynamic_print = DynamicPrint()
     while time() < end:
-        dynamic_print(pretty_time(round(time()) - start))
+        dynamic_print.write(pretty_time(round(time()) - start))
         sleep(1)
-    dynamic_print(pretty_time(in_args.length))
+    dynamic_print.write("%s" % pretty_time(in_args.length))
 
 else:
     sleep(in_args.length)
