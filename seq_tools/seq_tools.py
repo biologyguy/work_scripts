@@ -10,7 +10,7 @@ import sys
 import os
 import re
 import string
-from random import sample, choice
+from random import sample, choice, randint
 from math import ceil
 from Bio import SeqIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
@@ -48,7 +48,10 @@ def sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq
     if isinstance(sequence, list):
         _sequences = sequence
     elif os.path.isfile(sequence):
-        _seq_format = guess_format(sequence)
+        if in_args.read_format:
+            _seq_format = in_args.read_format
+        else:
+            _seq_format = guess_format(sequence)
         if not _seq_format:
             sys.exit("Error: could not determine the format of your input sequence file.")
         with open(sequence, "r") as _infile:
@@ -86,6 +89,15 @@ def _print_recs(_sequences):
         print(_output.strip())
 
 # #################################################################################################################### #
+
+
+def shuffle(_sequences):
+    _sequences = sequence_list(_sequences)
+    _output = []
+    for _ in range(len(_sequences)):
+        random_index = randint(1, len(_sequences)) - 1
+        _output.append(_sequences.pop(random_index))
+    return _output
 
 
 def rna2dna(_sequences):
@@ -454,6 +466,8 @@ if __name__ == '__main__':
     parser.add_argument('-cf', '--combine_features', action='store_true',
                         help="Takes the features in two files and combines them for each sequence")
     parser.add_argument('-sf', '--screw_formats', action='store', help="Arguments: out_format>")
+    parser.add_argument('-sh', '--shuffle', action='store_true',
+                        help="Randomly reorder the position of records in the file.")
     parser.add_argument('-hsi', '--hash_seq_ids', action='store_true',
                         help="Rename all the identifiers in a sequence list to a 10 character hash.")
     parser.add_argument('-pr', '--pull_records', action='store',
@@ -470,6 +484,7 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
     parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
+    parser.add_argument('-r', '--read_format', help="If the file extension isn't sane, set in format", action='store')
     
     in_args = parser.parse_args()
 
@@ -480,6 +495,11 @@ if __name__ == '__main__':
 
     in_place_allowed = False
     seqs = sequence_list(in_args.sequence[0])
+
+    # Shuffle
+    if in_args.shuffle:
+        in_place_allowed = True
+        _print_recs(shuffle(seqs))
 
     # Delete records
     if in_args.delete_records:
