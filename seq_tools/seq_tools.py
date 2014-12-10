@@ -44,25 +44,6 @@ def _set_alphabet(_sequences, alpha=None):  # update sequence alphabet in place
     return _sequences
 
 
-def sequence_list(sequence):  # Open a file and parse, or convert raw into a Seq object
-    if isinstance(sequence, list):
-        _sequences = sequence
-    elif os.path.isfile(sequence):
-        if in_args.read_format:
-            _seq_format = in_args.read_format
-        else:
-            _seq_format = guess_format(sequence)
-        if not _seq_format:
-            sys.exit("Error: could not determine the format of your input sequence file.")
-        with open(sequence, "r") as _infile:
-            _sequences = list(SeqIO.parse(_infile, _seq_format))
-    else:
-        # dna_or_prot = IUPAC.protein if guess_alphabet(sequence) == "prot" else IUPAC.ambiguous_dna
-        _sequences = [SeqRecord(Seq(sequence))]
-
-    return _sequences
-
-
 def _print_recs(_sequences):
     if len(_sequences) == 0:
         print("Nothing returned.", file=sys.stderr)
@@ -87,7 +68,24 @@ def _print_recs(_sequences):
             print("File over-written at:\n%s" % os.path.abspath(in_args.sequence[0]), file=sys.stderr)
     else:
         print(_output.strip())
+# ################################################# HELPER FUNCTIONS ################################################# #
 
+
+def sequence_list(sequence, _seq_format=None):  # Open a file and parse, or convert raw into a Seq object
+    if isinstance(sequence, list):
+        _sequences = sequence
+    elif os.path.isfile(sequence):
+        if not _seq_format:
+            _seq_format = guess_format(sequence)
+        if not _seq_format:
+            sys.exit("Error: could not determine the format of your input sequence file. Explicitly set with -r flag.")
+        with open(sequence, "r") as _infile:
+            _sequences = list(SeqIO.parse(_infile, _seq_format))
+    else:
+        # dna_or_prot = IUPAC.protein if guess_alphabet(sequence) == "prot" else IUPAC.ambiguous_dna
+        _sequences = [SeqRecord(Seq(sequence))]
+
+    return _sequences
 # #################################################################################################################### #
 
 
@@ -119,8 +117,7 @@ def dna2rna(_sequences):
 
 
 def guess_alphabet(_sequences):  # Does not handle ambigious dna
-    if not isinstance(_sequences, list):
-        _sequences = sequence_list(_sequences)
+    _sequences = sequence_list(_sequences)
     _sequence = ""
     for next_seq in _sequences:
         if len(_sequence) > 1000:
@@ -138,8 +135,8 @@ def guess_alphabet(_sequences):  # Does not handle ambigious dna
 
 
 def translate_cds(_sequences):
-    _output = []
     _sequences = sequence_list(_sequences)
+    _output = []
     for _seq in _sequences:
         try:
             _seq.seq = _seq.seq.translate(cds=True, to_stop=True)
@@ -395,7 +392,7 @@ def find_repeats(_sequences):
                     del_keys.append(flip_uniqe[value][0])
             else:
                 repeat_seqs[value].append(key)
-            del_keys.append(unique_seqs[key])
+            del_keys.append(unique_seqs[key].id)
 
     for key in del_keys:
         if key in unique_seqs:
@@ -416,6 +413,45 @@ def find_repeats(_sequences):
     return [unique_seqs, repeat_ids, repeat_seqs]
 
 
+def delete_records(_sequences, search_str):
+    _new_seqs = []
+    for _seq in _sequences:
+        if _seq.description.find(search_str) != -1 or _seq.id.find(search_str) != -1 \
+                or _seq.name.find(search_str) != -1:
+            continue
+        else:
+            _new_seqs.append(_seq)
+    return _new_seqs
+
+
+def delete_repeats(_sequences, scope='all'):  # scope in ['all', 'ids', 'seqs']
+    # First, remove duplicate IDs
+    if scope in ['all', 'ids']:
+        _unique, _rep_ids, _rep_seqs = find_repeats(_sequences)
+        if len(_rep_ids) > 0:
+            for _rep_id in _rep_ids:
+                store_one_copy = pull_recs(_sequences, _rep_id)[0]
+                _sequences = delete_records(_sequences, _rep_id)
+                _sequences += [store_one_copy]
+
+    # Then remove duplicate sequences
+    if scope in ['all', 'seqs']:
+        _unique, _rep_ids, _rep_seqs = find_repeats(_sequences)
+
+        if len(_rep_seqs) > 0:
+            _rep_seq_ids = []
+            for _seq in _rep_seqs:
+                _rep_seq_ids.append([])
+                for _rep_seq_id in _rep_seqs[_seq]:
+                    _rep_seq_ids[-1].append(_rep_seq_id)
+
+            for _rep_seqs in _rep_seq_ids:
+                for _rep_seq in _rep_seqs[1:]:
+                    _sequences = delete_records(_sequences, _rep_seq)
+
+    return _sequences
+
+
 def rename(_sequences, query, replace=""):
     _sequences = sequence_list(_sequences)
     _new_seqs = []
@@ -427,14 +463,17 @@ def rename(_sequences, query, replace=""):
     return _new_seqs
 
 
-def delete_records(_sequences, search_str):
+def clean_phylip(_sequences):
     _new_seqs = []
-    for _seq in _sequences:
-        if _seq.description.find(search_str) != -1 or _seq.id.find(search_str) != -1 \
-                or _seq.name.find(search_str) != -1:
-            continue
-        else:
-            _new_seqs.append(_seq)
+    _output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
+    max_id_length = 0
+    for _seq in _seqs:
+        max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
+
+    for _seq in _seqs:
+        _seq_id = _seq.id.ljust(max_id_length)
+        _output += "%s  %s\n" % (_seq_id, _seq.seq)
+
     return _new_seqs
 
 # ################################################# COMMAND LINE UI ################################################## #
@@ -465,7 +504,7 @@ if __name__ == '__main__':
                         help="Arguments: <pattern> <substitution>")
     parser.add_argument('-cf', '--combine_features', action='store_true',
                         help="Takes the features in two files and combines them for each sequence")
-    parser.add_argument('-sf', '--screw_formats', action='store', help="Arguments: out_format>")
+    parser.add_argument('-sf', '--screw_formats', action='store', help="Arguments: <out_format>")
     parser.add_argument('-sh', '--shuffle', action='store_true',
                         help="Randomly reorder the position of records in the file.")
     parser.add_argument('-hsi', '--hash_seq_ids', action='store_true',
@@ -477,29 +516,77 @@ if __name__ == '__main__':
                              "Arguments: <amount (int)> <front|rear>")
     parser.add_argument('-dr', '--delete_records', action='store',
                         help="Remove reocrds from a file. The deleted IDs are sent to stderr.")
+    parser.add_argument('-drp', '--delete_repeats', action='store_true',
+                        help="Strip repeat records (ids and/or identical sequences")
     parser.add_argument('-fr', '--find_repeats', action='store_true',
                         help="Identify whether a file contains repeat sequences and/or sequence ids")
     parser.add_argument("-mg", "--merge", help="Group a bunch of seq files together", action="store_true")
 
     parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
-    parser.add_argument('-f', '--format', help="Some functions use this flag for output format", action='store')
-    parser.add_argument('-r', '--read_format', help="If the file extension isn't sane, set in format", action='store')
+    parser.add_argument('-o', '--out_format', help="Some functions use this flag for output format", action='store')
+    parser.add_argument('-f', '--in_format', help="If the file extension isn't sane, specify the format", action='store')
     
     in_args = parser.parse_args()
 
-    if in_args.format:
-        out_format = in_args.format
+    if in_args.out_format:
+        out_format = in_args.out_format
     else:
         out_format = guess_format(in_args.sequence[0])
 
     in_place_allowed = False
-    seqs = sequence_list(in_args.sequence[0])
+    seqs = sequence_list(in_args.sequence[0], in_args.in_format)
 
     # Shuffle
     if in_args.shuffle:
         in_place_allowed = True
         _print_recs(shuffle(seqs))
+
+    # Delete repeats
+    if in_args.delete_repeats:
+        in_place_allowed = True
+        if in_args.params:
+            columns = int(in_args.params[0])
+        else:
+            columns = 1
+
+        unique, rep_ids, rep_seqs = find_repeats(seqs)
+        stderr_output = ""
+        if len(rep_ids) > 0:
+            stderr_output += "# Records with duplicate ids deleted (first instance retained)\n"
+            counter = 1
+            for seq in rep_ids:
+                stderr_output += "%s\t" % seq
+                if counter % columns == 0:
+                    stderr_output = "%s\n" % stderr_output.strip()
+                counter += 1
+            stderr_output += "\n\n"
+
+        rep_seq_ids = []
+        for seq in rep_seqs:
+            rep_seq_ids.append([])
+            for rep_seq_id in rep_seqs[seq]:
+                rep_seq_ids[-1].append(rep_seq_id)
+
+        if len(rep_seq_ids) > 0:
+            stderr_output += "# Records with duplicate sequence deleted (first instance retained)\n"
+            counter = 1
+            for rep_seqs in rep_seq_ids:
+                for rep_seq in rep_seqs[1:]:
+                    stderr_output += "%s\t" % rep_seq
+                    if counter % columns == 0:
+                        stderr_output = "%s\n" % stderr_output.strip()
+                    counter += 1
+            stderr_output += "\n"
+
+        if stderr_output != "":
+            print("# ################################################################ #", file=sys.stderr)
+            print(stderr_output.strip(), file=sys.stderr)
+            print("# ################################################################ #\n", file=sys.stderr)
+            _print_recs(delete_repeats(seqs))
+
+        else:
+            print("No duplicate records found", file=sys.stderr)
 
     # Delete records
     if in_args.delete_records:
@@ -536,7 +623,7 @@ if __name__ == '__main__':
     if in_args.screw_formats:
         in_place_allowed = True
         out_format = in_args.screw_formats
-        if in_args.in_place:
+        if in_args.in_place:  # Need to change the file extension
             os.remove(in_args.sequence[0])
             in_args.sequence[0] = ".".join(os.path.abspath(in_args.sequence[0]).split(".")[:-1]) + "." + out_format
             open(in_args.sequence[0], "w").close()
