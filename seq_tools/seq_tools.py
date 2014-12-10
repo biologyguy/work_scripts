@@ -199,7 +199,7 @@ def guess_format(file_path):
     file_path = file_path.split(".")
     if file_path[-1] in ["fa", "fas", "fasta"]:
         return "fasta"
-    if file_path[-1] in ["gb", "genbank"]:
+    if file_path[-1] in ["gb", "gp", "genbank"]:
         return "gb"
     if file_path[-1] in ["nex", "nxs", "nexus"]:
         return "nexus"
@@ -399,17 +399,17 @@ def find_repeats(_sequences):
             del(unique_seqs[key])
 
     for key, value in repeat_ids.items():  # find duplicates in the repeat ID list
-        for rep_seq in value:
-            rep_seq = str(rep_seq.seq)
-            if rep_seq not in flip_uniqe:
-                flip_uniqe[rep_seq] = [key]
+        for _rep_seq in value:
+            _rep_seq = str(_rep_seq.seq)
+            if _rep_seq not in flip_uniqe:
+                flip_uniqe[_rep_seq] = [key]
             else:
-                if rep_seq not in repeat_seqs:
-                    repeat_seqs[rep_seq] = [key]
-                    repeat_seqs[rep_seq] += flip_uniqe[rep_seq]
+                if _rep_seq not in repeat_seqs:
+                    repeat_seqs[_rep_seq] = [key]
+                    repeat_seqs[_rep_seq] += flip_uniqe[_rep_seq]
 
                 else:
-                    repeat_seqs[rep_seq].append(key)
+                    repeat_seqs[_rep_seq].append(key)
     return [unique_seqs, repeat_ids, repeat_seqs]
 
 
@@ -514,7 +514,7 @@ if __name__ == '__main__':
     parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=2,
                         help="Get the ends (front or rear) of all sequences in a file."
                              "Arguments: <amount (int)> <front|rear>")
-    parser.add_argument('-dr', '--delete_records', action='store',
+    parser.add_argument('-dr', '--delete_records', action='store', nargs="+",
                         help="Remove reocrds from a file. The deleted IDs are sent to stderr.")
     parser.add_argument('-drp', '--delete_repeats', action='store_true',
                         help="Strip repeat records (ids and/or identical sequences")
@@ -591,26 +591,34 @@ if __name__ == '__main__':
     # Delete records
     if in_args.delete_records:
         in_place_allowed = True
-
         if in_args.params:
             columns = int(in_args.params[0])
         else:
             columns = 1
 
-        counter = 1
-        deleted_seqs = pull_recs(seqs, in_args.delete_records)
+        new_list = list(seqs)
+        deleted_seqs = []
+        for next_pattern in in_args.delete_records:
+
+            deleted_seqs += pull_recs(new_list, next_pattern)
+            new_list = delete_records(new_list, next_pattern)
+
         if len(deleted_seqs) > 0:
-            output = "# Deleted records\n"
-            for seq in deleted_seqs:
-                output += "%s\t" % seq.id
-                if counter % columns == 0:
-                    output = "%s\n" % output.strip()
-                counter += 1
-            print(output.strip(), file=sys.stderr)
-            new_list = delete_records(seqs, in_args.delete_records)
-            _print_recs(new_list)
-        else:
-            print("No sequence identifiers match '%s'" % in_args.delete_records, file=sys.stderr)
+                counter = 1
+                output = "# Deleted records\n"
+                for seq in deleted_seqs:
+                    output += "%s\t" % seq.id
+                    if counter % columns == 0:
+                        output = "%s\n" % output.strip()
+                    counter += 1
+                print(output.strip(), file=sys.stderr)
+
+        if len(deleted_seqs) == 0:
+            print("# ################################################################ #", file=sys.stderr)
+            print("# No sequence identifiers match %s" % ", ".join(in_args.delete_records), file=sys.stderr)
+            print("# ################################################################ #\n", file=sys.stderr)
+
+        _print_recs(new_list)
 
     # Merge
     if in_args.merge:
