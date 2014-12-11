@@ -49,12 +49,20 @@ def _print_recs(_sequences):
         print("Nothing returned.", file=sys.stderr)
         return False
     _sequences = _set_alphabet(_sequences)
-    _output = ""
-    for _rec in _sequences:
-        try:
-            _output += _rec.format(out_format) + "\n"
-        except ValueError as e:
-            print("Error: %s\n" % e, file=sys.stderr)
+
+    if out_format == "phylipi":
+        _output = phylipi(_sequences)
+
+    elif out_format == "phylipis":
+        _output = phylipi(_sequences, "strict")
+
+    else:
+        _output = ""
+        for _rec in _sequences:
+            try:
+                _output += _rec.format(out_format) + "\n"
+            except ValueError as e:
+                print("Error: %s\n" % e, file=sys.stderr)
 
     if in_args.in_place and in_place_allowed:
         if not os.path.exists(in_args.sequence[0]):
@@ -86,6 +94,21 @@ def sequence_list(sequence, _seq_format=None):  # Open a file and parse, or conv
         _sequences = [SeqRecord(Seq(sequence))]
 
     return _sequences
+
+
+def phylipi(_sequences, _format="relaxed"):  # _format in ["strict", "relaxed"]
+    max_id_length = 0
+    max_seq_length = 0
+    for _seq in _sequences:
+        max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
+        max_seq_length = len(_seq.seq) if len(_seq.seq) > max_seq_length else max_seq_length
+
+    _output = " %s %s\n" % (len(_sequences), max_seq_length)
+    for _seq in _sequences:
+        _seq_id = _seq.id.ljust(max_id_length) if _format == "relaxed" else _seq.id[:10].ljust(10)
+        _output += "%s  %s\n" % (_seq_id, _seq.seq)
+
+    return _output
 # #################################################################################################################### #
 
 
@@ -462,19 +485,6 @@ def rename(_sequences, query, replace=""):
         _new_seqs.append(_seq)
     return _new_seqs
 
-
-def clean_phylip(_sequences):
-    _new_seqs = []
-    _output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
-    max_id_length = 0
-    for _seq in _seqs:
-        max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
-
-    for _seq in _seqs:
-        _seq_id = _seq.id.ljust(max_id_length)
-        _output += "%s  %s\n" % (_seq_id, _seq.seq)
-
-    return _new_seqs
 
 # ################################################# COMMAND LINE UI ################################################## #
 if __name__ == '__main__':
