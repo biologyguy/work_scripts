@@ -447,6 +447,16 @@ def delete_records(_sequences, search_str):
     return _new_seqs
 
 
+def delete_features(_sequences, _pattern):
+    for _seq in _sequences:
+        retained_features = []
+        for _feature in _seq.features:
+            if not re.search(_pattern, _feature.type):
+                retained_features.append(_feature)
+        _seq.features = retained_features
+    return _sequences
+
+
 def delete_repeats(_sequences, scope='all'):  # scope in ['all', 'ids', 'seqs']
     # First, remove duplicate IDs
     if scope in ['all', 'ids']:
@@ -475,15 +485,13 @@ def delete_repeats(_sequences, scope='all'):  # scope in ['all', 'ids', 'seqs']
     return _sequences
 
 
-def rename(_sequences, query, replace=""):
+def rename(_sequences, query, replace=""):  # TODO Allow a replacement pattern increment (like numbers)
     _sequences = sequence_list(_sequences)
-    _new_seqs = []
     for _seq in _sequences:
         new_name = re.sub(query, replace, _seq.id)
         _seq.id = new_name
         _seq.name = new_name
-        _new_seqs.append(_seq)
-    return _new_seqs
+    return _sequences
 
 
 # ################################################# COMMAND LINE UI ################################################## #
@@ -510,8 +518,8 @@ if __name__ == '__main__':
                         help="Arguments: one cDNA file and one protein file")
     parser.add_argument('-fp2d', '--map_features_prot2dna', action='store_true',
                         help="Arguments: one cDNA file and one protein file")
-    parser.add_argument('-ri', '--rename_ids', action='store', nargs=2,
-                        help="Arguments: <pattern> <substitution>")
+    parser.add_argument('-ri', '--rename_ids', action='store', metavar=('<pattern>', '<substitution>'), nargs=2,
+                        help="Replace some pattern in ids with something else.")
     parser.add_argument('-cf', '--combine_features', action='store_true',
                         help="Takes the features in two files and combines them for each sequence")
     parser.add_argument('-sf', '--screw_formats', action='store', help="Arguments: <out_format>")
@@ -526,6 +534,8 @@ if __name__ == '__main__':
                              "Arguments: <amount (int)> <front|rear>")
     parser.add_argument('-dr', '--delete_records', action='store', nargs="+",
                         help="Remove reocrds from a file. The deleted IDs are sent to stderr.")
+    parser.add_argument('-df', '--delete_features', action='store', nargs="+",
+                        help="Remove specified features from all records.")
     parser.add_argument('-drp', '--delete_repeats', action='store_true',
                         help="Strip repeat records (ids and/or identical sequences")
     parser.add_argument('-fr', '--find_repeats', action='store_true',
@@ -535,7 +545,8 @@ if __name__ == '__main__':
     parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
     parser.add_argument('-o', '--out_format', help="Some functions use this flag for output format", action='store')
-    parser.add_argument('-f', '--in_format', help="If the file extension isn't sane, specify the format", action='store')
+    parser.add_argument('-f', '--in_format', help="If SeqBuddy can't guess the file format from its extension, just "
+                                                  "specify the format directly.", action='store')
     
     in_args = parser.parse_args()
 
@@ -630,6 +641,14 @@ if __name__ == '__main__':
             print("# ################################################################ #\n", file=sys.stderr)
 
         _print_recs(new_list)
+
+    # Delete features
+    if in_args.delete_features:
+        in_place_allowed = True
+        for next_pattern in in_args.delete_features:
+            seqs = delete_features(seqs, next_pattern)
+
+        _print_recs(seqs)
 
     # Merge
     if in_args.merge:
