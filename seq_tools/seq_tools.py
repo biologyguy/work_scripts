@@ -364,7 +364,7 @@ def hash_seqeunce_ids(_sequences):
 def pull_recs(_sequences, _search):
     _output = []
     for _seq in _sequences:
-        if _seq.description.find(_search) != -1 or _seq.id.find(_search) != -1 or _seq.name.find(_search) != -1:
+        if re.search(_search, _seq.description) or re.search(_search, _seq.id) or re.search(_search, _seq.name):
             _output.append(_seq)
     return _output
 
@@ -438,9 +438,9 @@ def find_repeats(_sequences):
 
 def delete_records(_sequences, search_str):
     _new_seqs = []
+    deleted = pull_recs(_sequences, search_str)
     for _seq in _sequences:
-        if _seq.description.find(search_str) != -1 or _seq.id.find(search_str) != -1 \
-                or _seq.name.find(search_str) != -1:
+        if _seq in deleted:
             continue
         else:
             _new_seqs.append(_seq)
@@ -615,13 +615,14 @@ if __name__ == '__main__':
 
         if len(deleted_seqs) > 0:
                 counter = 1
-                output = "# Deleted records\n"
+                output = "# ####################### Deleted records ######################## #\n"
                 for seq in deleted_seqs:
                     output += "%s\t" % seq.id
                     if counter % columns == 0:
                         output = "%s\n" % output.strip()
                     counter += 1
-                print(output.strip(), file=sys.stderr)
+                output = "%s\n# ################################################################ #\n" % output.strip()
+                print(output, file=sys.stderr)
 
         if len(deleted_seqs) == 0:
             print("# ################################################################ #", file=sys.stderr)
