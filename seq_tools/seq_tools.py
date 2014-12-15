@@ -10,6 +10,7 @@ import sys
 import os
 import re
 import string
+from copy import copy
 from random import sample, choice, randint
 from math import ceil
 from Bio import SeqIO
@@ -30,37 +31,37 @@ def run_prosite():
 
 
 # ################################################ INTERNAL FUNCTIONS ################################################ #
-def _set_alphabet(_sequences, alpha=None):  # update sequence alphabet in place
+def _set_alphabet(_seqs, alpha=None):  # update sequence alphabet in place
     if not alpha:
-        alpha = guess_alphabet(_sequences)
+        alpha = guess_alphabet(_seqs)
     if alpha == "nucl":
         alpha = IUPAC.ambiguous_dna
     elif alpha == "prot":
         alpha = IUPAC.protein
     else:
         sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
-    for i in range(len(_sequences)):
-        _sequences[i].seq.alphabet = alpha
-    return _sequences
+    for i in range(len(_seqs.seqs)):
+        _seqs.seqs[i].seq.alphabet = alpha
+    return _seqs
 
 
-def _print_recs(_sequences):
-    if len(_sequences) == 0:
+def _print_recs(_seqs):  # TODO: Remove the calls to in_args
+    if len(_seqs.seqs) == 0:
         print("Nothing returned.", file=sys.stderr)
         return False
-    _sequences = _set_alphabet(_sequences)
+    _seqs = _set_alphabet(_seqs)
 
-    if out_format == "phylipi":
-        _output = phylipi(_sequences)
+    if _seqs.out_format == "phylipi":
+        _output = phylipi(_seqs)
 
-    elif out_format == "phylipis":
-        _output = phylipi(_sequences, "strict")
+    elif _seqs.out_format == "phylipis":
+        _output = phylipi(_seqs, "strict")
 
     else:
         _output = ""
-        for _rec in _sequences:
+        for _rec in _seqs.seqs:
             try:
-                _output += _rec.format(out_format) + "\n"
+                _output += _rec.format(_seqs.out_format) + "\n"
             except ValueError as e:
                 print("Error: %s\n" % e, file=sys.stderr)
 
@@ -79,143 +80,59 @@ def _print_recs(_sequences):
 # ################################################# HELPER FUNCTIONS ################################################# #
 
 
-def sequence_list(sequence, _seq_format=None):  # Open a file and parse, or convert raw into a Seq object
-    if isinstance(sequence, list):
-        _sequences = sequence
-    elif os.path.isfile(sequence):
-        if not _seq_format:
-            _seq_format = guess_format(sequence)
-        if not _seq_format:
-            sys.exit("Error: could not determine the format of your input sequence file. Explicitly set with -r flag.")
-        with open(sequence, "r") as _infile:
-            _sequences = list(SeqIO.parse(_infile, _seq_format))
-    else:
-        # dna_or_prot = IUPAC.protein if guess_alphabet(sequence) == "prot" else IUPAC.ambiguous_dna
-        _sequences = [SeqRecord(Seq(sequence))]
+class SequencePreparer():  # Open a file or read a handle and parse, or convert raw into a Seq object
+    def __init__(self, _input, _in_format=None):
+        self.out_format = 'fasta'
+        self.in_format = _in_format
+        if isinstance(_input, list):
+            # make sure that the list is actually SeqIO records (just test a few...)
+            for _seq in _input[:3]:
+                if type(_seq) != SeqRecord:
+                    sys.exit("Error: Seqlist is not populated with SeqRecords.")
+            _sequences = _input
 
-    return _sequences
+        elif str(type(_input)) == "<class '_io.TextIOWrapper'>":
+            if not _in_format:
+                self.in_format = guess_format(_input)
+                self.out_format = str(self.in_format)
+            if not self.in_format:
+                sys.exit("Error: could not determine the format of your input sequence file. Explicitly set with -f flag.")
 
+            _sequences = list(SeqIO.parse(_input, self.in_format))
 
-def phylipi(_sequences, _format="relaxed"):  # _format in ["strict", "relaxed"]
-    max_id_length = 0
-    max_seq_length = 0
-    for _seq in _sequences:
-        max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
-        max_seq_length = len(_seq.seq) if len(_seq.seq) > max_seq_length else max_seq_length
+        elif os.path.isfile(_input):
+            _input = open(_input, "r")
+            if not _in_format:
+                self.in_format = guess_format(_input)
+                self.out_format = str(self.in_format)
+            if not self.in_format:
+                sys.exit("Error: could not determine the format of your input sequence file. Explicitly set with -f flag.")
 
-    _output = " %s %s\n" % (len(_sequences), max_seq_length)
-    for _seq in _sequences:
-        _seq_id = _seq.id.ljust(max_id_length) if _format == "relaxed" else _seq.id[:10].ljust(10)
-        _output += "%s  %s\n" % (_seq_id, _seq.seq)
+            _sequences = list(SeqIO.parse(_input, self.in_format))
 
-    return _output
-# #################################################################################################################### #
+        else:
+            _sequences = [SeqRecord(Seq(_input))]
 
-
-def shuffle(_sequences):
-    _sequences = sequence_list(_sequences)
-    _output = []
-    for _ in range(len(_sequences)):
-        random_index = randint(1, len(_sequences)) - 1
-        _output.append(_sequences.pop(random_index))
-    return _output
+        self.seqs = _sequences
 
 
-def rna2dna(_sequences):
-    _sequences = sequence_list(_sequences)
-    _output = []
-    for _seq in _sequences:
-        _seq.seq = Seq(str(_seq.seq.back_transcribe()), alphabet=IUPAC.ambiguous_dna)
-        _output.append(_seq)
-    return _output
-
-
-def dna2rna(_sequences):
-    _sequences = sequence_list(_sequences)
-    _output = []
-    for _seq in _sequences:
-        _seq.seq = Seq(str(_seq.seq.transcribe()), alphabet=IUPAC.ambiguous_rna)
-        _output.append(_seq)
-    return _output
-
-
-def guess_alphabet(_sequences):  # Does not handle ambigious dna
-    _sequences = sequence_list(_sequences)
-    _sequence = ""
-    for next_seq in _sequences:
-        if len(_sequence) > 1000:
-            break
-        _sequence += re.sub("[NX\-?]", "", str(next_seq.seq))
-
-    if len(_sequence) == 0:
-        return None
-    percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
-                        _sequence.count("C") + _sequence.count("U")) / float(len(_sequence))
-    if percent_dna > 0.95:
-        return "nucl"
-    else:
-        return "prot"
-
-
-def translate_cds(_sequences):
-    _sequences = sequence_list(_sequences)
-    _output = []
-    for _seq in _sequences:
+def guess_format(_handle):
+    possible_formats = ["phylip-relaxed", "stockholm", "fasta", "gb", "nexus"]
+    for _format in possible_formats:
         try:
-            _seq.seq = _seq.seq.translate(cds=True, to_stop=True)
-        except TranslationError as e1:
-            _seq.seq = Seq(str(_seq.seq)[:(len(str(_seq.seq)) - len(str(_seq.seq)) % 3)])
-            try:
-                _seq.seq = _seq.seq.translate()
-                print("Warning: %s is not a standard CDS\t-->\t%s" % (_seq.id, e1), file=sys.stderr)
-            except TranslationError as e2:
-                print("Error: %s failed to translate\t-->\t%s" % (_seq.id, e2), file=sys.stderr)
+            _handle.seek(0)
+            _seqs = SeqIO.parse(_handle, _format)
+            if next(_seqs):
+                _handle.seek(0)
+                return _format
+            else:
+                continue
+        except:
+            continue
+    return None
 
-        _seq.seq.alphabet = IUPAC.protein
-        _output.append(_seq)
-    return _output
-
-
-def concat_seqs(_sequences):
-    _new_seq = ""
-    concat_ids = []
-    features = []
-    alpha = None
-    for _seq_list in _sequences:
-        _seqs = sequence_list(_seq_list)
-        if not alpha:
-            alpha = guess_alphabet(_seqs)
-        elif alpha != guess_alphabet(_seq_list):
-            sys.exit("Error: You are trying to concatinate protein and nucleotide sequences together")
-
-        for _seq in _seqs:
-            location = FeatureLocation(len(_new_seq), len(_new_seq) + len(str(_seq.seq)))
-            feature = SeqFeature(location=location, id=_seq.id, type=_seq.id[:15])
-            features.append(feature)
-            concat_ids.append(_seq.id)
-            _new_seq += str(_seq.seq)
-
-    concat_ids = "|".join(concat_ids)
-
-    _output = [SeqRecord(Seq(_new_seq, alphabet=alpha), description=concat_ids, id="concatination", features=features)]
-    return _output
-
-
-def clean_seq(_sequences):  # from file or raw
-    """remove fasta headers, numbers, and whitespace from sequence strings"""
-    _sequences = sequence_list(_sequences)
-    _output = []
-    for _seq in _sequences:
-        _seq.seq = re.sub(">.*", "", str(_seq.seq))
-        _seq.seq = re.sub("[0-9\s\-\*]", "", str(_seq.seq))
-        _seq.seq = str(_seq.seq).upper()
-        _output.append(_seq)
-
-    return _output  # returns a list of cleaned sequence objects
-
-
-def guess_format(file_path):
-    # currently just looks at file extension, but might want to get more fancy
+"""
+    # Old file extension analysis
     if not os.path.isfile(file_path):
         return None
 
@@ -231,10 +148,122 @@ def guess_format(file_path):
     if file_path[-1] in ["sto", "pfam", "stockholm"]:
         return "stockholm"
     return None
+"""
+
+
+def phylipi(_input, _format="relaxed"):  # _format in ["strict", "relaxed"]
+    max_id_length = 0
+    max_seq_length = 0
+    for _seq in _input.seqs:
+        max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
+        max_seq_length = len(_seq.seq) if len(_seq.seq) > max_seq_length else max_seq_length
+
+    _output = " %s %s\n" % (len(_input.seqs), max_seq_length)
+    for _seq in _input.seqs:
+        _seq_id = _seq.id.ljust(max_id_length) if _format == "relaxed" else _seq.id[:10].ljust(10)
+        _output += "%s  %s\n" % (_seq_id, _seq.seq)
+
+    return _output
+# #################################################################################################################### #
+
+
+def shuffle(_seqs):
+    _output = []
+    for _ in range(len(_seqs.seqs)):
+        random_index = randint(1, len(_seqs.seqs)) - 1
+        _output.append(_seqs.seqs.pop(random_index))
+    _seqs.seqs = _output
+    return _seqs
+
+
+def rna2dna(_seqs):
+    _output = []
+    for _seq in _seqs.seqs:
+        _seq.seq = Seq(str(_seq.seq.back_transcribe()), alphabet=IUPAC.ambiguous_dna)
+        _output.append(_seq)
+    _seqs.seqs = _output
+    return _seqs
+
+
+def dna2rna(_seqs):
+    _output = []
+    for _seq in _seqs.seqs:
+        _seq.seq = Seq(str(_seq.seq.transcribe()), alphabet=IUPAC.ambiguous_rna)
+        _output.append(_seq)
+    _seqs.seqs = _output
+    return _seqs
+
+
+def guess_alphabet(_seqs):  # Does not handle ambigious dna
+    _sequence = ""
+    for next_seq in _seqs.seqs:
+        if len(_sequence) > 1000:
+            break
+        _sequence += re.sub("[NX\-?]", "", str(next_seq.seq))
+
+    if len(_sequence) == 0:
+        return None
+    percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
+                        _sequence.count("C") + _sequence.count("U")) / float(len(_sequence))
+    if percent_dna > 0.95:
+        return "nucl"
+    else:
+        return "prot"
+
+
+def translate_cds(_seqs):
+    _output = []
+    for _seq in _seqs.seqs:
+        try:
+            _seq.seq = _seq.seq.translate(cds=True, to_stop=True)
+        except TranslationError as e1:
+            _seq.seq = Seq(str(_seq.seq)[:(len(str(_seq.seq)) - len(str(_seq.seq)) % 3)])
+            try:
+                _seq.seq = _seq.seq.translate()
+                print("Warning: %s is not a standard CDS\t-->\t%s" % (_seq.id, e1), file=sys.stderr)
+            except TranslationError as e2:
+                print("Error: %s failed to translate\t-->\t%s" % (_seq.id, e2), file=sys.stderr)
+
+        _seq.seq.alphabet = IUPAC.protein
+        _output.append(_seq)
+    _seqs.seqs = _output
+    return _seqs
+
+
+def concat_seqs(_seqs):
+    _new_seq = ""
+    concat_ids = []
+    features = []
+    for _seq in _seqs.seqs:
+        location = FeatureLocation(len(_new_seq), len(_new_seq) + len(str(_seq.seq)))
+        feature = SeqFeature(location=location, id=_seq.id, type=_seq.id[:15])
+        features.append(feature)
+        concat_ids.append(_seq.id)
+        _new_seq += str(_seq.seq)
+
+    concat_ids = "|".join(concat_ids)
+    alpha = guess_alphabet(_seqs)
+    _new_seq = [SeqRecord(Seq(_new_seq, alphabet=alpha), description=concat_ids, id="concatination", features=features)]
+    _seqs = SequencePreparer(_new_seq)
+    _seqs.out_format = "gb"
+    return _seqs
+
+
+def clean_seq(_seqs):  # from file or raw
+    """remove fasta headers, numbers, and whitespace from sequence strings"""
+    _output = []
+    for _seq in _seqs.seqs:
+        _seq.seq = re.sub(">.*", "", str(_seq.seq))
+        _seq.seq = re.sub("[0-9\s\-\*]", "", str(_seq.seq))
+        _seq.seq = str(_seq.seq).upper()
+        _output.append(_seq)
+
+    _seqs.seqs = _output
+    return _seqs
 
 
 # Apply DNA features to protein sequences
-def map_features_dna2prot(dna_seqs, prot_seqs):
+def map_features_dna2prot(dna_seqs, prot_seqs):  # TODO: Figure out if this is broken
     prot_dict = SeqIO.to_dict(prot_seqs)
     dna_dict = SeqIO.to_dict(dna_seqs)
     _new_seqs = {}
@@ -260,7 +289,7 @@ def map_features_dna2prot(dna_seqs, prot_seqs):
 
 
 # Apply DNA features to protein sequences
-def map_features_prot2dna(prot_seqs, dna_seqs):
+def map_features_prot2dna(prot_seqs, dna_seqs):  # TODO: Figure out if this is broken
     prot_dict = SeqIO.to_dict(prot_seqs)
     dna_dict = SeqIO.to_dict(dna_seqs)
     _new_seqs = {}
@@ -286,6 +315,7 @@ def map_features_prot2dna(prot_seqs, dna_seqs):
 
 
 # Merge feature lists
+# TODO: Figure out if this is broken
 def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
     # make sure there are no repeat ids
     _unique, _rep_ids, _rep_seqs = find_repeats(seqs1)
@@ -339,12 +369,12 @@ def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
     return [_new_seqs[_seq_id] for _seq_id in _new_seqs]
 
 
-def hash_seqeunce_ids(_sequences):
+def hash_seqeunce_ids(_seqs):
     hash_list = []
     seq_ids = []
-    for i in range(len(_sequences)):
+    for i in range(len(_seqs.seqs)):
         new_hash = ""
-        seq_ids.append(_sequences[i].id)
+        seq_ids.append(_seqs.seqs[i].id)
         while True:
             new_hash = "".join([choice(string.ascii_letters + string.digits) for _ in range(10)])
             if new_hash in hash_list:
@@ -352,26 +382,27 @@ def hash_seqeunce_ids(_sequences):
             else:
                 hash_list.append(new_hash)
                 break
-        _sequences[i].id = new_hash
+        _seqs.seqs[i].id = new_hash
 
     hash_map = []
     for i in range(len(hash_list)):
         hash_map.append((hash_list[i], seq_ids[i]))
 
-    return [hash_map, _sequences]
+    return [hash_map, _seqs]
 
 
-def pull_recs(_sequences, _search):
+def pull_recs(_seqs, _search):
     _output = []
-    for _seq in _sequences:
+    for _seq in _seqs.seqs:
         if re.search(_search, _seq.description) or re.search(_search, _seq.id) or re.search(_search, _seq.name):
             _output.append(_seq)
-    return _output
+    _seqs.seqs = _output
+    return _seqs
 
 
-def pull_seq_ends(_sequences, _amount, _which_end):
+def pull_seq_ends(_seqs, _amount, _which_end):
     seq_ends = []
-    for _seq in _sequences:
+    for _seq in _seqs.seqs:
         if _which_end == 'front':
             _seq.seq = _seq.seq[:_amount]
 
@@ -381,16 +412,17 @@ def pull_seq_ends(_sequences, _amount, _which_end):
         else:
             sys.exit("Error: you much pick 'front' or 'rear' as the third argument in pull_seq_ends.")
         seq_ends.append(_seq)
-    return seq_ends
+    _seqs.seqs = seq_ends
+    return _seqs
 
 
-def find_repeats(_sequences):
+def find_repeats(_seqs):
     unique_seqs = {}
     repeat_ids = {}
     repeat_seqs = {}
 
     # First find replicate IDs
-    for _seq in _sequences:
+    for _seq in _seqs.seqs:
         if _seq.id in repeat_ids:
             repeat_ids[_seq.id].append(_seq)
         elif _seq.id in unique_seqs:
@@ -436,41 +468,41 @@ def find_repeats(_sequences):
     return [unique_seqs, repeat_ids, repeat_seqs]
 
 
-def delete_records(_sequences, search_str):
-    _new_seqs = []
-    deleted = pull_recs(_sequences, search_str)
-    for _seq in _sequences:
+def delete_records(_seqs, search_str):
+    _output = []
+    deleted = pull_recs(copy(_seqs), search_str).seqs
+    for _seq in _seqs.seqs:
         if _seq in deleted:
             continue
         else:
-            _new_seqs.append(_seq)
-    return _new_seqs
+            _output.append(_seq)
+    _seqs.seqs = _output
+    return _seqs
 
 
-def delete_features(_sequences, _pattern):
-    for _seq in _sequences:
+def delete_features(_seqs, _pattern):
+    for _seq in _seqs.seqs:
         retained_features = []
         for _feature in _seq.features:
             if not re.search(_pattern, _feature.type):
                 retained_features.append(_feature)
         _seq.features = retained_features
-    return _sequences
+    return _seqs
 
 
-def delete_repeats(_sequences, scope='all'):  # scope in ['all', 'ids', 'seqs']
+def delete_repeats(_seqs, scope='all'):  # scope in ['all', 'ids', 'seqs']
     # First, remove duplicate IDs
     if scope in ['all', 'ids']:
-        _unique, _rep_ids, _rep_seqs = find_repeats(_sequences)
+        _unique, _rep_ids, _rep_seqs = find_repeats(_seqs)
         if len(_rep_ids) > 0:
             for _rep_id in _rep_ids:
-                store_one_copy = pull_recs(_sequences, _rep_id)[0]
-                _sequences = delete_records(_sequences, _rep_id)
-                _sequences += [store_one_copy]
+                store_one_copy = pull_recs(copy(_seqs), _rep_id).seqs[0]
+                delete_records(_seqs, _rep_id)
+                _seqs.seqs.append(store_one_copy)
 
     # Then remove duplicate sequences
     if scope in ['all', 'seqs']:
-        _unique, _rep_ids, _rep_seqs = find_repeats(_sequences)
-
+        _unique, _rep_ids, _rep_seqs = find_repeats(_seqs)
         if len(_rep_seqs) > 0:
             _rep_seq_ids = []
             for _seq in _rep_seqs:
@@ -480,25 +512,24 @@ def delete_repeats(_sequences, scope='all'):  # scope in ['all', 'ids', 'seqs']
 
             for _rep_seqs in _rep_seq_ids:
                 for _rep_seq in _rep_seqs[1:]:
-                    _sequences = delete_records(_sequences, _rep_seq)
+                    delete_records(_seqs, _rep_seq)
 
-    return _sequences
+    return _seqs
 
 
-def rename(_sequences, query, replace=""):  # TODO Allow a replacement pattern increment (like numbers)
-    _sequences = sequence_list(_sequences)
-    for _seq in _sequences:
+def rename(_seqs, query, replace=""):  # TODO Allow a replacement pattern increment (like numbers)
+    for _seq in _seqs.seqs:
         new_name = re.sub(query, replace, _seq.id)
         _seq.id = new_name
         _seq.name = new_name
-    return _sequences
+    return _seqs
 
 
 # ################################################# COMMAND LINE UI ################################################## #
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(prog="seq_tools.py", description="Commandline wrapper for all the fun functions in"
-                                                                      "this file. Play with your sequences!")
+                                                                      " this file. Play with your sequences!")
 
     parser.add_argument("sequence", help="Supply a file path or a raw sequence", nargs="+")
 
@@ -550,13 +581,16 @@ if __name__ == '__main__':
     
     in_args = parser.parse_args()
 
-    if in_args.out_format:
-        out_format = in_args.out_format
-    else:
-        out_format = guess_format(in_args.sequence[0])
-
     in_place_allowed = False
-    seqs = sequence_list(in_args.sequence[0], in_args.in_format)
+
+    seqs = []
+    seq_set = ""
+    for seq_set in in_args.sequence:
+        seq_set = SequencePreparer(seq_set, in_args.in_format)
+        seqs += seq_set.seqs
+
+    seqs = SequencePreparer(seqs)
+    seqs.out_format = in_args.out_format if in_args.out_format else seq_set.out_format
 
     # Shuffle
     if in_args.shuffle:
@@ -604,6 +638,7 @@ if __name__ == '__main__':
             print("# ################################################################ #", file=sys.stderr)
             print(stderr_output.strip(), file=sys.stderr)
             print("# ################################################################ #\n", file=sys.stderr)
+
             _print_recs(delete_repeats(seqs))
 
         else:
@@ -617,12 +652,11 @@ if __name__ == '__main__':
         else:
             columns = 1
 
-        new_list = list(seqs)
+        new_list = SequencePreparer(list(seqs.seqs))
         deleted_seqs = []
         for next_pattern in in_args.delete_records:
-
-            deleted_seqs += pull_recs(new_list, next_pattern)
-            new_list = delete_records(new_list, next_pattern)
+            deleted_seqs += pull_recs(copy(new_list), next_pattern).seqs
+            delete_records(new_list, next_pattern)
 
         if len(deleted_seqs) > 0:
                 counter = 1
@@ -640,30 +674,32 @@ if __name__ == '__main__':
             print("# No sequence identifiers match %s" % ", ".join(in_args.delete_records), file=sys.stderr)
             print("# ################################################################ #\n", file=sys.stderr)
 
+        new_list.out_format = in_args.out_format if in_args.out_format else seqs.out_format
         _print_recs(new_list)
 
     # Delete features
     if in_args.delete_features:
         in_place_allowed = True
         for next_pattern in in_args.delete_features:
-            seqs = delete_features(seqs, next_pattern)
-
+            delete_features(seqs, next_pattern)
         _print_recs(seqs)
 
     # Merge
     if in_args.merge:
-        new_list = []
+        new_list = SequencePreparer([])
         for infile in in_args.sequence:
-            new_list += sequence_list(infile)
+            new_list.seqs += SequencePreparer(infile).seqs
+
+        new_list.out_format = in_args.out_format if in_args.out_format else seqs.out_format
         _print_recs(new_list)
 
     # Screw formats
     if in_args.screw_formats:
         in_place_allowed = True
-        out_format = in_args.screw_formats
+        seqs.out_format = in_args.screw_formats
         if in_args.in_place:  # Need to change the file extension
             os.remove(in_args.sequence[0])
-            in_args.sequence[0] = ".".join(os.path.abspath(in_args.sequence[0]).split(".")[:-1]) + "." + out_format
+            in_args.sequence[0] = ".".join(os.path.abspath(in_args.sequence[0]).split(".")[:-1]) + "." + seqs.out_format
             open(in_args.sequence[0], "w").close()
 
         _print_recs(seqs)
@@ -698,7 +734,7 @@ if __name__ == '__main__':
             columns = 1
         output = ""
         counter = 1
-        for seq in seqs:
+        for seq in seqs.seqs:
             output += "%s\t" % seq.id
             if counter % columns == 0:
                 output = "%s\n" % output.strip()
@@ -714,11 +750,14 @@ if __name__ == '__main__':
 
     # Concatenate sequences
     if in_args.concat_seqs:
-        _print_recs(concat_seqs(in_args.sequence))
+        seqs = concat_seqs(seqs)
+        if in_args.out_format:
+            seqs.out_format = in_args.out_format
+        _print_recs(seqs)
 
     # Count number of sequences in a file
     if in_args.num_seqs:
-        print(len(seqs))
+        print(len(seqs.seqs))
 
     # Find repeat sequences or ids
     if in_args.find_repeats:
@@ -786,21 +825,22 @@ if __name__ == '__main__':
         in_place_allowed = True
         seqs = clean_seq(seqs)
         output = ""
-        for seq in seqs:
+        for seq in seqs.seqs:
             output += "%s\n\n" % seq.seq
         print(output.strip())
 
     # Guess format
     if in_args.guess_format:
-        print(guess_format(seqs))
+        for seq_set in in_args.sequence:
+            print("%s\t-->\t%s\n" % (seq_set, SequencePreparer(seq_set).in_format))
 
-    # Map features from cDNA over to protein
+    # Map features from cDNA over to protein TODO: Check if broken
     if in_args.map_features_dna2prot:
         in_place_allowed = True
         file1, file2 = in_args.sequence[:2]
 
-        file1 = sequence_list(file1)
-        file2 = sequence_list(file2)
+        file1 = SequencePreparer(file1)
+        file2 = SequencePreparer(file2)
 
         if guess_alphabet(file1) == guess_alphabet(file2):
             sys.exit("Error: You must provide one DNA file and one protein file")
@@ -817,13 +857,13 @@ if __name__ == '__main__':
         out_format = "gb"
         _print_recs(new_seqs)
 
-    # Map features from protein over to cDNA
+    # Map features from protein over to cDNA TODO: Check if broken
     if in_args.map_features_prot2dna:
         in_place_allowed = True
         file1, file2 = in_args.sequence[:2]
 
-        file1 = sequence_list(file1)
-        file2 = sequence_list(file2)
+        file1 = SequencePreparer(file1)
+        file2 = SequencePreparer(file2)
 
         if guess_alphabet(file1) == guess_alphabet(file2):
             sys.exit("Error: You must provide one DNA file and one protein file")
@@ -840,10 +880,10 @@ if __name__ == '__main__':
         out_format = "gb"
         _print_recs(new_seqs)
 
-    # Combine feature sets from two files into one
+    # Combine feature sets from two files into one TODO: Check if broken
     if in_args.combine_features:
         file1, file2 = in_args.sequence[:2]
-        file1 = sequence_list(file1)
-        file2 = sequence_list(file2)
+        file1 = SequencePreparer(file1)
+        file2 = SequencePreparer(file2)
         new_seqs = combine_features(file1, file2)
         _print_recs(new_seqs)
