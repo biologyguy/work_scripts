@@ -13,13 +13,15 @@ import string
 from copy import copy
 from random import sample, choice, randint
 from math import ceil
-from Bio import SeqIO
+from Bio import SeqIO, SearchIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio.Alphabet import IUPAC
 from Bio.Data.CodonTable import TranslationError
-
+from tempfile import TemporaryDirectory
+from subprocess import Popen, PIPE
+from shutil import which
 
 # ##################################################### WISH LIST #################################################### #
 def get_genbank_file():
@@ -47,7 +49,7 @@ def _set_alphabet(_seqs, alpha=None):  # update sequence alphabet in place
 
 def _print_recs(_seqs):  # TODO: Remove the calls to in_args
     if len(_seqs.seqs) == 0:
-        print("Nothing returned.", file=sys.stderr)
+        sys.stderr.write("Nothing returned.\n")
         return False
     _seqs = _set_alphabet(_seqs)
 
@@ -63,20 +65,20 @@ def _print_recs(_seqs):  # TODO: Remove the calls to in_args
             try:
                 _output += _rec.format(_seqs.out_format) + "\n"
             except ValueError as e:
-                print("Error: %s\n" % e, file=sys.stderr)
+                sys.stderr.write("Error: %s\n" % e)
 
     if in_args.in_place and in_place_allowed:
         if not os.path.exists(in_args.sequence[0]):
-            print("Warning: The -i flag was passed in, but the positional argument doesn't seem to be a file. Nothing "
-                  "was written.",
-                  file=sys.stderr)
-            print(_output.strip())
+            sys.stderr.write("Warning: The -i flag was passed in, but the positional argument doesn't seem to be a "
+                             "file. Nothing was written.\n")
+            sys.stdout.write("%s\n" % _output.strip())
         else:
             with open(os.path.abspath(in_args.sequence[0]), "w") as ofile:
                 ofile.write(_output)
-            print("File over-written at:\n%s" % os.path.abspath(in_args.sequence[0]), file=sys.stderr)
+            sys.stderr.write("File over-written at:\n%s\n" % os.path.abspath(in_args.sequence[0]))
     else:
-        print(_output.strip())
+        sys.stdout.write("%s\n" % _output.strip())
+
 # ################################################# HELPER FUNCTIONS ################################################# #
 
 
@@ -96,7 +98,7 @@ class SequencePreparer():  # Open a file or read a handle and parse, or convert 
                 self.in_format = guess_format(_input)
                 self.out_format = str(self.in_format)
             if not self.in_format:
-                sys.exit("Error: could not determine the format of your input sequence file. Explicitly set with -f flag.")
+                sys.exit("Error: could not determine the seq format from your input handle. Explicitly set with -f flag.")
 
             _sequences = list(SeqIO.parse(_input, self.in_format))
 
@@ -105,14 +107,15 @@ class SequencePreparer():  # Open a file or read a handle and parse, or convert 
             if not _in_format:
                 self.in_format = guess_format(_input)
                 self.out_format = str(self.in_format)
+
             if not self.in_format:
-                sys.exit("Error: could not determine the format of your input sequence file. Explicitly set with -f flag.")
+                sys.exit("Error: could not determine the format of your input sequence file %s.\n"
+                         "Explicitly set with -f flag." % _input)
 
             _sequences = list(SeqIO.parse(_input, self.in_format))
-
+            _input.close()
         else:
             _sequences = [SeqRecord(Seq(_input))]
-
         self.seqs = _sequences
 
 
@@ -165,6 +168,70 @@ def phylipi(_input, _format="relaxed"):  # _format in ["strict", "relaxed"]
 
     return _output
 # #################################################################################################################### #
+
+
+def blast(_seqs, blast_db):
+    blast_program = "blastp" if guess_alphabet(_seqs) == "prot" else "blastn"
+
+    # ToDo Check NCBI++ tools are a conducive version (2.2.29 and above, I think [maybe .28])
+
+    # Check to make sure blast is in path and ensure that the blast_db is present
+    blast_db = os.path.abspath(blast_db)
+    if blast_program == "blastp":
+        if not which("blastp"):
+            sys.exit("Error: blastp binary not found in your path. Specify with the -p flag")  # ToDo: implement -p flag
+        if not os.path.isfile("%s.pin" % blast_db) or not os.path.isfile("%s.phr" % blast_db) or not os.path.isfile("%s.psq" % blast_db):
+            sys.exit("Error: Your blast database was not identified at '%s'" % blast_db)
+    else:
+        if not which("blastn"):
+            sys.exit("Error: blastn binary not found in your path. Specify with the -p flag")  # ToDo: implement -p flag
+        if not os.path.isfile("%s.nin" % blast_db) or not os.path.isfile("%s.nhr" % blast_db) or not os.path.isfile("%s.nsq" % blast_db):
+            sys.exit("Error: Your blast database was not identified at '%s'" % blast_db)
+
+    if not which("blastdbcmd"):
+        sys.exit("Error: blastdbcmd binary not found in your path. Specify with the -p flag")
+
+    # Check that blastdb was made with the -parse_seqids flag
+    extensions = ["pog", "psd", "psi"] if blast_program == "blastp" else ["nog", "nsd", "nsi"]
+    if not os.path.isfile("%s.%s" % (blast_db, extensions[0])) or not \
+            os.path.isfile("%s.%s" % (blast_db, extensions[1])) or not \
+            os.path.isfile("%s.%s" % (blast_db, extensions[2])):
+        sys.exit("Error: Incorrect blastdb. When making the blast database, please use the -parse_seqids flag.")
+
+    tmp_dir = TemporaryDirectory()
+    with open("%s/tmp.fa" % tmp_dir.name, "w") as ofile:
+        SeqIO.write(_seqs.seqs, ofile, "fasta")
+    blast_program = "blastp" if guess_alphabet(_seqs) == "prot" else "blastn"
+    Popen("%s -db %s -query %s/tmp.fa -out %s/out.txt -num_threads 20 -evalue 0.01 -outfmt 6" %
+          (blast_program, blast_db, tmp_dir.name, tmp_dir.name), shell=True).wait()
+
+    with open("%s/out.txt" % tmp_dir.name, "r") as ifile:
+        blast_results = SearchIO.parse(ifile, "blast-tab")
+        _records = list(blast_results)
+
+    hit_ids = []
+    for record in _records:
+        for hsp in record.hsps:
+            hit_id = hsp.hit_id
+
+            if hit_id in hit_ids:
+                continue
+
+            hit_ids.append(hit_id)
+
+    ofile = open("%s/seqs.fa" % tmp_dir.name, "w")
+    for hit_id in hit_ids:
+        hit = Popen("blastdbcmd -db %s -entry 'lcl|%s'" % (blast_db, hit_id), stdout=PIPE, shell=True).communicate()
+        hit = hit[0].decode("utf-8")
+        hit = re.sub("lcl\|", "", hit)
+        ofile.write("%s\n" % hit)
+
+    ofile.close()
+
+    with open("%s/seqs.fa" % tmp_dir.name, "r") as ifile:
+        _new_seqs = SequencePreparer(ifile)
+
+    return _new_seqs
 
 
 def shuffle(_seqs):
@@ -220,9 +287,9 @@ def translate_cds(_seqs):
             _seq.seq = Seq(str(_seq.seq)[:(len(str(_seq.seq)) - len(str(_seq.seq)) % 3)])
             try:
                 _seq.seq = _seq.seq.translate()
-                print("Warning: %s is not a standard CDS\t-->\t%s" % (_seq.id, e1), file=sys.stderr)
+                sys.stderr.write("Warning: %s is not a standard CDS\t-->\t%s\n" % (_seq.id, e1))
             except TranslationError as e2:
-                print("Error: %s failed to translate\t-->\t%s" % (_seq.id, e2), file=sys.stderr)
+                sys.stderr.write("Error: %s failed to translate\t-->\t%s\n" % (_seq.id, e2))
 
         _seq.seq.alphabet = IUPAC.protein
         _output.append(_seq)
@@ -269,7 +336,7 @@ def map_features_dna2prot(dna_seqs, prot_seqs):  # TODO: Figure out if this is b
     _new_seqs = {}
     for _seq_id in dna_dict:
         if _seq_id not in prot_dict:
-            print("Warning: %s is in protein file, but not cDNA file" % _seq_id, file=sys.stderr)
+            sys.stderr.write("Warning: %s is in protein file, but not cDNA file\n" % _seq_id)
             continue
 
         _new_seqs[_seq_id] = prot_dict[_seq_id]
@@ -282,7 +349,7 @@ def map_features_dna2prot(dna_seqs, prot_seqs):  # TODO: Figure out if this is b
 
     for _seq_id in prot_dict:
         if _seq_id not in dna_dict:
-            print("Warning: %s is in cDNA file, but not protein file" % _seq_id, file=sys.stderr)
+            sys.stderr.write("Warning: %s is in cDNA file, but not protein file\n" % _seq_id)
 
     _seqs_list = [_new_seqs[_seq_id] for _seq_id in _new_seqs]
     return _seqs_list
@@ -295,7 +362,7 @@ def map_features_prot2dna(prot_seqs, dna_seqs):  # TODO: Figure out if this is b
     _new_seqs = {}
     for _seq_id in prot_dict:
         if _seq_id not in dna_dict:
-            print("Warning: %s is in protein file, but not cDNA file" % _seq_id, file=sys.stderr)
+            sys.stderr.write("Warning: %s is in protein file, but not cDNA file\n" % _seq_id)
             continue
 
         _new_seqs[_seq_id] = dna_dict[_seq_id]
@@ -308,7 +375,7 @@ def map_features_prot2dna(prot_seqs, dna_seqs):  # TODO: Figure out if this is b
 
     for _seq_id in dna_dict:
         if _seq_id not in prot_dict:
-            print("Warning: %s is in cDNA file, but not protein file" % _seq_id, file=sys.stderr)
+            sys.stderr.write("Warning: %s is in cDNA file, but not protein file\n" % _seq_id)
 
     _seqs_list = [_new_seqs[_seq_id] for _seq_id in _new_seqs]
     return _seqs_list
@@ -357,13 +424,13 @@ def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
             for feature in seq_dict2[_seq_id].features:
                 seq_dict1[_seq_id].features.append(feature)
         else:
-            print("Warning: %s is only in the first set of sequences" % _seq_id, file=sys.stderr)
+            sys.stderr.write("Warning: %s is only in the first set of sequences\n" % _seq_id)
 
         _new_seqs[_seq_id] = seq_dict1[_seq_id]
 
     for _seq_id in seq_dict2:
         if _seq_id not in seq_dict1:
-            print("Warning: %s is only in the first set of sequences" % _seq_id, file=sys.stderr)
+            sys.stderr.write("Warning: %s is only in the first set of sequences\n" % _seq_id)
             _new_seqs[_seq_id] = seq_dict2[_seq_id]
 
     return [_new_seqs[_seq_id] for _seq_id in _new_seqs]
@@ -531,7 +598,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="seq_tools.py", description="Commandline wrapper for all the fun functions in"
                                                                       " this file. Play with your sequences!")
 
-    parser.add_argument("sequence", help="Supply a file path or a raw sequence", nargs="+")
+    parser.add_argument("sequence", help="Supply a file path or a raw sequence", nargs="+", default=sys.stdin)
 
     parser.add_argument('-ga', '--guess_alphabet', action='store_true')
     parser.add_argument('-gf', '--guess_format', action='store_true')
@@ -572,12 +639,14 @@ if __name__ == '__main__':
     parser.add_argument('-fr', '--find_repeats', action='store_true',
                         help="Identify whether a file contains repeat sequences and/or sequence ids")
     parser.add_argument("-mg", "--merge", help="Group a bunch of seq files together", action="store_true")
+    parser.add_argument("-bl", "--blast", metavar="BLAST database", action="store",
+                        help="BLAST your sequence file using common settings, return the hits from blastdb")
 
     parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
-    parser.add_argument('-o', '--out_format', help="Some functions use this flag for output format", action='store')
-    parser.add_argument('-f', '--in_format', help="If SeqBuddy can't guess the file format from its extension, just "
-                                                  "specify the format directly.", action='store')
+    parser.add_argument('-o', '--out_format', help="If you want a specific format output", action='store')
+    parser.add_argument('-f', '--in_format', help="If SeqBuddy can't guess the file format, just specify it directly.",
+                        action='store')
     
     in_args = parser.parse_args()
 
@@ -591,6 +660,13 @@ if __name__ == '__main__':
 
     seqs = SequencePreparer(seqs)
     seqs.out_format = in_args.out_format if in_args.out_format else seq_set.out_format
+
+    # BLAST
+    if in_args.blast:
+        blast_path = os.path.abspath(in_args.blast)
+        if not os.path.isfile("%s.pin" % blast_path):
+            sys.stderr.write("Error: You must specify a blast database to query\n")
+        _print_recs(blast(seqs, in_args.blast))
 
     # Shuffle
     if in_args.shuffle:
@@ -635,14 +711,14 @@ if __name__ == '__main__':
             stderr_output += "\n"
 
         if stderr_output != "":
-            print("# ################################################################ #", file=sys.stderr)
-            print(stderr_output.strip(), file=sys.stderr)
-            print("# ################################################################ #\n", file=sys.stderr)
+            sys.stderr.write("# ################################################################ #\n")
+            sys.stderr.write("%s\n" % stderr_output.strip())
+            sys.stderr.write("# ################################################################ #\n")
 
             _print_recs(delete_repeats(seqs))
 
         else:
-            print("No duplicate records found", file=sys.stderr)
+            sys.stderr.write("No duplicate records found\n")
 
     # Delete records
     if in_args.delete_records:
@@ -667,12 +743,12 @@ if __name__ == '__main__':
                         output = "%s\n" % output.strip()
                     counter += 1
                 output = "%s\n# ################################################################ #\n" % output.strip()
-                print(output, file=sys.stderr)
+                sys.stderr.write(output)
 
         if len(deleted_seqs) == 0:
-            print("# ################################################################ #", file=sys.stderr)
-            print("# No sequence identifiers match %s" % ", ".join(in_args.delete_records), file=sys.stderr)
-            print("# ################################################################ #\n", file=sys.stderr)
+            sys.stderr.write("# ################################################################ #\n")
+            sys.stderr.write("# No sequence identifiers match %s\n" % ", ".join(in_args.delete_records))
+            sys.stderr.write("# ################################################################ #\n")
 
         new_list.out_format = in_args.out_format if in_args.out_format else seqs.out_format
         _print_recs(new_list)
@@ -739,7 +815,7 @@ if __name__ == '__main__':
             if counter % columns == 0:
                 output = "%s\n" % output.strip()
             counter += 1
-        print(output.strip())
+        sys.stdout.write("%s\n" % output.strip())
 
     # Translate CDS
     if in_args.translate:
@@ -757,7 +833,7 @@ if __name__ == '__main__':
 
     # Count number of sequences in a file
     if in_args.num_seqs:
-        print(len(seqs.seqs))
+        sys.stdout.write("%s\n" % len(seqs.seqs))
 
     # Find repeat sequences or ids
     if in_args.find_repeats:
@@ -791,7 +867,7 @@ if __name__ == '__main__':
             output = "%s" % output.strip(", ")
         else:
             output += "No unique records"
-        print(output)
+        sys.stdout.write("%s\n" % output)
 
     # Pull sequence ends
     if in_args.pull_record_ends:
@@ -813,12 +889,12 @@ if __name__ == '__main__':
         hash_table = "# Hash table\n"
         for seq in hashed[0]:
             hash_table += "%s,%s\n" % (seq[0], seq[1])
-        print("%s\n" % hash_table, file=sys.stderr)
+        sys.stderr.write("%s\n" % hash_table)
         _print_recs(hashed[1])
 
     # Guess alphabet
     if in_args.guess_alphabet:
-        print(guess_alphabet(seqs))
+        sys.stdout.write("%s\n" % guess_alphabet(seqs))
 
     # Clean Seq
     if in_args.clean_seq:
@@ -827,12 +903,12 @@ if __name__ == '__main__':
         output = ""
         for seq in seqs.seqs:
             output += "%s\n\n" % seq.seq
-        print(output.strip())
+        sys.stdout.write("%s\n" % output.strip())
 
     # Guess format
     if in_args.guess_format:
         for seq_set in in_args.sequence:
-            print("%s\t-->\t%s\n" % (seq_set, SequencePreparer(seq_set).in_format))
+            sys.stdout.write("%s\t-->\t%s\n" % (seq_set, SequencePreparer(seq_set).in_format))
 
     # Map features from cDNA over to protein TODO: Check if broken
     if in_args.map_features_dna2prot:
