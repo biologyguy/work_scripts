@@ -23,7 +23,7 @@ from copy import copy
 class AnnoTMD():
     """Takes a Bio.SeqRecord and runs octopus to find/annotate TMDs"""
     def __init__(self, sequence, blastdb, debug=False):
-        alpha_guess = seq_tools.guess_alphabet(str(sequence.seq))
+        alpha_guess = seq_tools.guess_alphabet(seq_tools.SequencePreparer(str(sequence.seq)))
         sequence.seq.alphabet = IUPAC.unambiguous_dna if alpha_guess == "nucl" \
             else IUPAC.protein
 
@@ -103,6 +103,6 @@ if __name__ == '__main__':
         tmds = AnnoTMD(seq_rec, in_args.blastdb)
         tmds.save("%s/%s.gb" % (in_args.out_dir, seq_rec.id))
 
-    seqs = seq_tools.sequence_list(in_args.in_file)
+    seqs = seq_tools.SequencePreparer(in_args.in_file)
 
-    run_multicore_function(seqs, get_tmds)
+    run_multicore_function(seqs.seqs, get_tmds)
