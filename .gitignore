@@ -5,6 +5,10 @@
 .idea
 .idea/*
 
+#Spyder IDE config files
+.spyderworkspace
+.spyderproject
+
 #Mac system stuff
 .DS_Store
 
