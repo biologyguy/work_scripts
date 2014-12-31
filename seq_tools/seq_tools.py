@@ -23,12 +23,21 @@ from tempfile import TemporaryDirectory
 from subprocess import Popen, PIPE
 from shutil import which
 
+
 # ##################################################### WISH LIST #################################################### #
 def get_genbank_file():
     x = 1
 
 
 def run_prosite():
+    x = 1
+
+
+def order_features_by_position():
+    x = 1
+
+
+def order_features_by_alpha():
     x = 1
 
 
@@ -51,7 +60,6 @@ def _print_recs(_seqs):  # TODO: Remove the calls to in_args
     if len(_seqs.seqs) == 0:
         sys.stderr.write("Nothing returned.\n")
         return False
-    _seqs = _set_alphabet(_seqs)
 
     if _seqs.out_format == "phylipi":
         _output = phylipi(_seqs)
@@ -82,9 +90,10 @@ def _print_recs(_seqs):  # TODO: Remove the calls to in_args
 # ################################################# HELPER FUNCTIONS ################################################# #
 
 
+# ToDo: abstract self.in_format and self.out_format somehow. To much repetition right now...
 class SequencePreparer():  # Open a file or read a handle and parse, or convert raw into a Seq object
-    def __init__(self, _input, _in_format=None):
-        self.out_format = 'fasta'
+    def __init__(self, _input, _in_format=None, _out_format=None):
+        self.out_format = 'fasta' if not _out_format else _out_format
         self.in_format = _in_format
         if isinstance(_input, list):
             # make sure that the list is actually SeqIO records (just test a few...)
@@ -96,9 +105,9 @@ class SequencePreparer():  # Open a file or read a handle and parse, or convert 
         elif str(type(_input)) == "<class '_io.TextIOWrapper'>":
             if not _in_format:
                 self.in_format = guess_format(_input)
-                self.out_format = str(self.in_format)
+                self.out_format = str(self.in_format) if not _out_format else _out_format
             if not self.in_format:
-                sys.exit("Error: could not determine the seq format from your input handle. Explicitly set with -f flag.")
+                sys.exit("Error: could not determine the seq format. Try explicitly setting with -f flag.")
 
             _sequences = list(SeqIO.parse(_input, self.in_format))
 
@@ -106,7 +115,7 @@ class SequencePreparer():  # Open a file or read a handle and parse, or convert 
             _input = open(_input, "r")
             if not _in_format:
                 self.in_format = guess_format(_input)
-                self.out_format = str(self.in_format)
+                self.out_format = str(self.in_format) if not _out_format else _out_format
 
             if not self.in_format:
                 sys.exit("Error: could not determine the format of your input sequence file %s.\n"
@@ -119,7 +128,7 @@ class SequencePreparer():  # Open a file or read a handle and parse, or convert 
         self.seqs = _sequences
 
 
-def guess_format(_handle):
+def guess_format(_handle):  # Try to read the file in each format, and assume success if not error and num seqs > 0
     possible_formats = ["phylip-relaxed", "stockholm", "fasta", "gb", "nexus"]
     for _format in possible_formats:
         try:
@@ -261,7 +270,7 @@ def dna2rna(_seqs):
     return _seqs
 
 
-def guess_alphabet(_seqs):  # Does not handle ambigious dna
+def guess_alphabet(_seqs):  # Does not handle ambiguous dna
     _sequence = ""
     for next_seq in _seqs.seqs:
         if len(_sequence) > 1000:
@@ -382,8 +391,7 @@ def map_features_prot2dna(prot_seqs, dna_seqs):  # TODO: Figure out if this is b
 
 
 # Merge feature lists
-# TODO: Figure out if this is broken
-def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
+def combine_features(seqs1, seqs2):
     # make sure there are no repeat ids
     _unique, _rep_ids, _rep_seqs = find_repeats(seqs1)
     if len(_rep_ids) > 0:
@@ -396,10 +404,10 @@ def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
     seq_dict1 = {}
     seq_dict2 = {}
 
-    for _seq in seqs1:
+    for _seq in seqs1.seqs:
         seq_dict1[_seq.id] = _seq
 
-    for _seq in seqs2:
+    for _seq in seqs2.seqs:
         seq_dict2[_seq.id] = _seq
 
     # make sure that we're comparing apples to apples across all sequences (i.e., same alphabet)
@@ -421,8 +429,15 @@ def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
     _new_seqs = {}
     for _seq_id in seq_dict1:
         if _seq_id in seq_dict2:
+            _seq_feats1 = []  # Test list so features common to both records are not duplicated
+            for feature in seq_dict1[_seq_id].features:
+                _seq_feats1.append("%s-%s-%s" % (feature.location.start, feature.location.end, feature.type))
             for feature in seq_dict2[_seq_id].features:
-                seq_dict1[_seq_id].features.append(feature)
+                feature_check = "%s-%s-%s" % (feature.location.start, feature.location.end, feature.type)
+                if feature_check in _seq_feats1:
+                    continue
+                else:
+                    seq_dict1[_seq_id].features.append(feature)
         else:
             sys.stderr.write("Warning: %s is only in the first set of sequences\n" % _seq_id)
 
@@ -433,7 +448,8 @@ def combine_features(seqs1, seqs2):  # These arguments are _sequence() lists
             sys.stderr.write("Warning: %s is only in the first set of sequences\n" % _seq_id)
             _new_seqs[_seq_id] = seq_dict2[_seq_id]
 
-    return [_new_seqs[_seq_id] for _seq_id in _new_seqs]
+    _new_seqs = SequencePreparer([_new_seqs[_seq_id] for _seq_id in _new_seqs], _out_format=seqs1.in_format)
+    return _new_seqs
 
 
 def hash_seqeunce_ids(_seqs):
@@ -956,7 +972,7 @@ if __name__ == '__main__':
         out_format = "gb"
         _print_recs(new_seqs)
 
-    # Combine feature sets from two files into one TODO: Check if broken
+    # Combine feature sets from two files into one
     if in_args.combine_features:
         file1, file2 = in_args.sequence[:2]
         file1 = SequencePreparer(file1)
