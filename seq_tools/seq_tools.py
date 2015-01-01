@@ -3,7 +3,7 @@
 # Created on: Nov 20 2014 
 
 """
-Collection of functions that do funs stuff with sequences. Pull them into a script, or run as a commandline tool.
+Collection of functions that do fun stuff with sequences. Pull them into a script, or run as a command line tool.
 """
 import pdb
 import sys
@@ -90,12 +90,21 @@ def _print_recs(_seqs):  # TODO: Remove the calls to in_args
 # ################################################# HELPER FUNCTIONS ################################################# #
 
 
-# ToDo: abstract self.in_format and self.out_format somehow. To much repetition right now...
 class SequencePreparer():  # Open a file or read a handle and parse, or convert raw into a Seq object
     def __init__(self, _input, _in_format=None, _out_format=None):
-        self.out_format = 'fasta' if not _out_format else _out_format
-        self.in_format = _in_format
-        if isinstance(_input, list):
+        if not _in_format:
+            self.in_format = guess_format(_input)
+            self.out_format = str(self.in_format) if not _out_format else _out_format
+        if not self.in_format:
+            sys.exit("Error: could not determine the seq format in SequencePreparer(). "
+                     "Try explicitly setting with -f flag.")
+
+        self.out_format = self.in_format if not _out_format else _out_format
+
+        if str(type(_input)) == "<class '__main__.SequencePreparer'>":
+            _sequences = _input.seqs
+
+        elif isinstance(_input, list):
             # make sure that the list is actually SeqIO records (just test a few...)
             for _seq in _input[:3]:
                 if type(_seq) != SeqRecord:
@@ -103,45 +112,48 @@ class SequencePreparer():  # Open a file or read a handle and parse, or convert 
             _sequences = _input
 
         elif str(type(_input)) == "<class '_io.TextIOWrapper'>":
-            if not _in_format:
-                self.in_format = guess_format(_input)
-                self.out_format = str(self.in_format) if not _out_format else _out_format
-            if not self.in_format:
-                sys.exit("Error: could not determine the seq format. Try explicitly setting with -f flag.")
-
             _sequences = list(SeqIO.parse(_input, self.in_format))
 
         elif os.path.isfile(_input):
             _input = open(_input, "r")
-            if not _in_format:
-                self.in_format = guess_format(_input)
-                self.out_format = str(self.in_format) if not _out_format else _out_format
-
-            if not self.in_format:
-                sys.exit("Error: could not determine the format of your input sequence file %s.\n"
-                         "Explicitly set with -f flag." % _input)
-
             _sequences = list(SeqIO.parse(_input, self.in_format))
             _input.close()
         else:
             _sequences = [SeqRecord(Seq(_input))]
+
         self.seqs = _sequences
 
 
-def guess_format(_handle):  # Try to read the file in each format, and assume success if not error and num seqs > 0
-    possible_formats = ["phylip-relaxed", "stockholm", "fasta", "gb", "nexus"]
-    for _format in possible_formats:
-        try:
-            _handle.seek(0)
-            _seqs = SeqIO.parse(_handle, _format)
-            if next(_seqs):
-                _handle.seek(0)
-                return _format
-            else:
+def guess_format(_input):  # _input can be list, SequencePreparer object, file handle, or file path.
+    # If input is just a list, there is no BioPython in-format. Default to permissive gb.
+    if isinstance(_input, list):
+        return "gb"
+
+    # Pull value directly from object if appropriate
+    if str(type(_input)) == "<class '__main__.SequencePreparer'>":
+        return _input.in_format
+
+    # If input is a handle or path, try to read the file in each format, and assume success if not error and num seqs > 0
+    if os.path.isfile(_input):
+        _input = open(_input, "r")
+
+    if str(type(_input)) == "<class '_io.TextIOWrapper'>":
+        possible_formats = ["phylip-relaxed", "stockholm", "fasta", "gb", "nexus"]
+        for _format in possible_formats:
+            try:
+                _input.seek(0)
+                _seqs = SeqIO.parse(_input, _format)
+                if next(_seqs):
+                    _input.seek(0)
+                    return _format
+                else:
+                    continue
+            except:
                 continue
-        except:
-            continue
-    return None
+        return None  # Unable to determine format from file handle
+
+    else:
+        sys.exit("Error: Unsupported _input argument in guess_format(). %s" % _input)
 
 """
     # Old file extension analysis
@@ -675,6 +687,7 @@ if __name__ == '__main__':
         seqs += seq_set.seqs
 
     seqs = SequencePreparer(seqs)
+
     seqs.out_format = in_args.out_format if in_args.out_format else seq_set.out_format
 
     # BLAST
