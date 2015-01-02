@@ -45,12 +45,6 @@ def order_features_by_alpha():
 def _set_alphabet(_seqs, alpha=None):  # update sequence alphabet in place
     if not alpha:
         alpha = guess_alphabet(_seqs)
-    if alpha == "nucl":
-        alpha = IUPAC.ambiguous_dna
-    elif alpha == "prot":
-        alpha = IUPAC.protein
-    else:
-        sys.exit("Error: Can't deterimine alphabet in _set_alphabet")
     for i in range(len(_seqs.seqs)):
         _seqs.seqs[i].seq.alphabet = alpha
     return _seqs
@@ -192,7 +186,7 @@ def phylipi(_input, _format="relaxed"):  # _format in ["strict", "relaxed"]
 
 
 def blast(_seqs, blast_db):
-    blast_program = "blastp" if guess_alphabet(_seqs) == "prot" else "blastn"
+    blast_program = "blastp" if guess_alphabet(_seqs) == IUPAC.protein else "blastn"
 
     # ToDo Check NCBI++ tools are a conducive version (2.2.29 and above, I think [maybe .28])
 
@@ -222,7 +216,7 @@ def blast(_seqs, blast_db):
     tmp_dir = TemporaryDirectory()
     with open("%s/tmp.fa" % tmp_dir.name, "w") as ofile:
         SeqIO.write(_seqs.seqs, ofile, "fasta")
-    blast_program = "blastp" if guess_alphabet(_seqs) == "prot" else "blastn"
+    blast_program = "blastp" if guess_alphabet(_seqs) == IUPAC.protein else "blastn"
     Popen("%s -db %s -query %s/tmp.fa -out %s/out.txt -num_threads 20 -evalue 0.01 -outfmt 6" %
           (blast_program, blast_db, tmp_dir.name, tmp_dir.name), shell=True).wait()
 
@@ -294,9 +288,10 @@ def guess_alphabet(_seqs):  # Does not handle ambiguous dna
     percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
                         _sequence.count("C") + _sequence.count("U")) / float(len(_sequence))
     if percent_dna > 0.95:
-        return "nucl"
+        nucl = IUPAC.ambiguous_rna if float(_sequence.count("U")) / float(len(_sequence)) > 0.05 else IUPAC.ambiguous_dna
+        return nucl
     else:
-        return "prot"
+        return IUPAC.protein
 
 
 def translate_cds(_seqs):
@@ -337,13 +332,17 @@ def concat_seqs(_seqs):
     return _seqs
 
 
-def clean_seq(_seqs):  # from file or raw
-    """remove fasta headers, numbers, and whitespace from sequence strings"""
+def clean_seq(_seqs):
+    """remove all non-sequence chracters from sequence strings"""
     _output = []
+    _alpha = guess_alphabet(_seqs)
     for _seq in _seqs.seqs:
-        _seq.seq = re.sub(">.*", "", str(_seq.seq))
-        _seq.seq = re.sub("[0-9\s\-\*]", "", str(_seq.seq))
         _seq.seq = str(_seq.seq).upper()
+        if _alpha == IUPAC.protein:
+            _seq.seq = Seq(re.sub("[^ACDEFGHIKLMNPQRSTVWXY]", "", str(_seq.seq)), alphabet=_alpha)
+        else:
+            _seq.seq = Seq(re.sub("[^ATGCXNU]", "", str(_seq.seq)), alphabet=_alpha)
+
         _output.append(_seq)
 
     _seqs.seqs = _output
@@ -630,7 +629,9 @@ if __name__ == '__main__':
 
     parser.add_argument('-ga', '--guess_alphabet', action='store_true')
     parser.add_argument('-gf', '--guess_format', action='store_true')
-    parser.add_argument('-cs', '--clean_seq', action='store_true', help="Strip out numbers and stuff")
+    parser.add_argument('-cs', '--clean_seq', action='store_true',
+                        help="Strip out non-sequence characters, such as stops (*) and gaps (-)")
+    parser.add_argument('-rs', '--raw_seq', action='store_true', help="Remove all meta-data from file")
     parser.add_argument('-tr', '--translate', action='store_true', help="Convert coding sequences into amino acid sequences")
     parser.add_argument('-d2r', '--transcribe', action='store_true', help="Convert DNA sequences to RNA")
     parser.add_argument('-r2d', '--back_transcribe', action='store_true', help="Convert RNA sequences to DNA")
@@ -818,16 +819,16 @@ if __name__ == '__main__':
     # Transcribe
     if in_args.transcribe:
         in_place_allowed = True
-        if guess_alphabet(seqs) != "nucl":
-            sys.exit("Error: You need to provide an unabmigious DNA sequence.")
+        if guess_alphabet(seqs) != IUPAC.ambiguous_dna:
+            sys.exit("Error: You need to provide a DNA sequence.")
         seqs = dna2rna(seqs)
         _print_recs(seqs)
 
     # Back Transcribe
     if in_args.back_transcribe:
         in_place_allowed = True
-        if guess_alphabet(seqs) != "nucl":
-            sys.exit("Error: You need to provide an unabmigious DNA sequence.")
+        if guess_alphabet(seqs) != IUPAC.ambiguous_rna:
+            sys.exit("Error: You need to provide an RNA sequence.")
         seqs = rna2dna(seqs)
         _print_recs(seqs)
 
@@ -849,7 +850,7 @@ if __name__ == '__main__':
     # Translate CDS
     if in_args.translate:
         in_place_allowed = True
-        if guess_alphabet(seqs) != "nucl":
+        if guess_alphabet(seqs) == IUPAC.protein:
             sys.exit("Error: you need to supply DNA or RNA sequences to translate")
         _print_recs(translate_cds(seqs))
 
@@ -923,16 +924,28 @@ if __name__ == '__main__':
 
     # Guess alphabet
     if in_args.guess_alphabet:
-        sys.stdout.write("%s\n" % guess_alphabet(seqs))
+        alpha = guess_alphabet(seqs)
+        if alpha == IUPAC.protein:
+            sys.stdout.write("prot\n%s\n")
+        elif alpha == IUPAC.ambiguous_dna:
+            sys.stdout.write("dna\n")
+        elif alpha == IUPAC.ambiguous_rna:
+            sys.stdout.write("rna\n")
+        else:
+            sys.stdout.write("Undetermined\n")
 
-    # Clean Seq
-    if in_args.clean_seq:
-        in_place_allowed = True
+    # Raw Seq
+    if in_args.raw_seq:
         seqs = clean_seq(seqs)
         output = ""
         for seq in seqs.seqs:
             output += "%s\n\n" % seq.seq
         sys.stdout.write("%s\n" % output.strip())
+
+    # Clean Seq
+    if in_args.clean_seq:
+        in_place_allowed = True
+        _print_recs(clean_seq(seqs))
 
     # Guess format
     if in_args.guess_format:
@@ -950,7 +963,7 @@ if __name__ == '__main__':
         if guess_alphabet(file1) == guess_alphabet(file2):
             sys.exit("Error: You must provide one DNA file and one protein file")
 
-        if guess_alphabet(file1) == "prot":
+        if guess_alphabet(file1) == IUPAC.protein:
             prot = file1
             dna = file2
         else:
@@ -973,7 +986,7 @@ if __name__ == '__main__':
         if guess_alphabet(file1) == guess_alphabet(file2):
             sys.exit("Error: You must provide one DNA file and one protein file")
 
-        if guess_alphabet(file1) == "nucl":
+        if guess_alphabet(file1) != IUPAC.protein:
             dna = file1
             prot = file2
         else:
