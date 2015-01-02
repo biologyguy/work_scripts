@@ -23,12 +23,12 @@ class Prosite():
         tmp_file.write(str(self.sequence.seq))
 
         output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 %s"
-                       % (client_path, self.tmp_dir, self.sequence.id, tmp_file.path), shell=True,
+                       % (client_path, self.tmp_dir.path, self.sequence.id, tmp_file.path), shell=True,
                        stdout=PIPE).communicate()[0].decode()
 
         self.job_id = output.split("\n")[0]
 
-        with open("%s/%s.out.txt" % (self.tmp_dir, self.sequence.id), "r") as in_file:
+        with open("%s/%s.out.txt" % (self.tmp_dir.path, self.sequence.id), "r") as in_file:
             self.outfile = in_file.read()
 
         for feature in self.outfile.split(">")[1:]:
@@ -90,7 +90,7 @@ if __name__ == '__main__':
 
     in_args = parser.parse_args()
 
-    sequences = seq_tools.sequence_list(in_args.in_file)
+    sequences = seq_tools.SequencePreparer(in_args.in_file)
     gb_file = os.path.abspath(in_args.gb_file)
     prosite_scan_client = in_args.prosite_client  # "/Users/bondsr/Documents/public_scripts/ps_scan_py3.py"
 
@@ -105,4 +105,4 @@ if __name__ == '__main__':
             with open(gb_file, "a") as out_file:
                 SeqIO.write(sequence, out_file, "gb")
 
-    run_multicore_function(sequences, run_prosite)
+    run_multicore_function(sequences.seqs, run_prosite)
