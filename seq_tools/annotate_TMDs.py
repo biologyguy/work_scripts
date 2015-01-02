@@ -6,15 +6,15 @@
 Wraps a local install of the Octopus transmembrane prediction program (octopus.cbr.su.se).
 Input is a sequence file (Biopython compliant), and each predicted TMD is appended to the seq feature list for printing
 """
-from os import makedirs
-from os.path import abspath, isdir
+from os import makedirs, walk
+from os.path import abspath
 import re
 from Bio.Seq import Seq
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.Alphabet import IUPAC
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
-from MyFuncs import TempDir, run_multicore_function
+from MyFuncs import TempDir, run_multicore_function, walklevel
 import seq_tools
 from subprocess import Popen
 from copy import copy
@@ -23,7 +23,7 @@ from copy import copy
 class AnnoTMD():
     """Takes a Bio.SeqRecord and runs octopus to find/annotate TMDs"""
     def __init__(self, sequence, blastdb, debug=False):
-        alpha_guess = seq_tools.guess_alphabet(seq_tools.SequencePreparer(str(sequence.seq)))
+        alpha_guess = seq_tools.guess_alphabet(seq_tools.SequencePreparer([sequence]))
         sequence.seq.alphabet = IUPAC.unambiguous_dna if alpha_guess == "nucl" \
             else IUPAC.protein
 
@@ -90,19 +90,26 @@ if __name__ == '__main__':
                                                                           "a fasta file, and send the output somewhere")
 
     parser.add_argument("in_file", help="Location of DNA or protein fasta file", action="store")
-    # TODO Change this from an out_dir to out_file, using a temp dir and then seq_tools.merge()
-    parser.add_argument("out_dir", help="Where do you want the new genbank files sent", action="store")
+    parser.add_argument("out_file", help="Where do you want the new genbank file sent?", action="store")
     parser.add_argument("blastdb", help="Path to BLASTP database used by Octopus", action="store")
 
     in_args = parser.parse_args()
 
-    if not isdir(abspath(in_args.out_dir)):
-        makedirs(abspath(in_args.out_dir))
-
-    def get_tmds(seq_rec):
+    def get_tmds(seq_rec, args):
+        _temp_dir = args[0]
         tmds = AnnoTMD(seq_rec, in_args.blastdb)
-        tmds.save("%s/%s.gb" % (in_args.out_dir, seq_rec.id))
+        tmds.save("%s/%s.gb" % (_temp_dir, seq_rec.id))
 
     seqs = seq_tools.SequencePreparer(in_args.in_file)
+    temp_dir = TempDir()
+    run_multicore_function(seqs.seqs, get_tmds, [temp_dir.path])
 
-    run_multicore_function(seqs.seqs, get_tmds)
+    outfile = open(in_args.out_file, "w")
+
+    root, dirs, files = next(walklevel(temp_dir.path))
+
+    for file in files:
+        with open("%s/%s" % (root, file), "r") as ifile:
+            outfile.write("%s\n" % ifile.read())
+
+    outfile.close()
