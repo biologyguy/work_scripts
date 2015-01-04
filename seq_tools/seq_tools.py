@@ -42,11 +42,11 @@ def order_features_by_alpha():
 
 
 # ################################################ INTERNAL FUNCTIONS ################################################ #
-def _set_alphabet(_seqs, alpha=None):  # update sequence alphabet in place
-    if not alpha:
-        alpha = guess_alphabet(_seqs)
+def _set_alphabet(_seqs, _alpha=None):  # update sequence alphabet in place
+    if not _alpha:
+        _alpha = guess_alphabet(_seqs)
     for i in range(len(_seqs.seqs)):
-        _seqs.seqs[i].seq.alphabet = alpha
+        _seqs.seqs[i].seq.alphabet = _alpha
     return _seqs
 
 
@@ -128,7 +128,7 @@ def guess_format(_input):  # _input can be list, SequencePreparer object, file h
         return _input.in_format
 
     # If input is a handle or path, try to read the file in each format, and assume success if not error and num seqs > 0
-    if os.path.isfile(_input):
+    if os.path.isfile(str(_input)):
         _input = open(_input, "r")
 
     if str(type(_input)) == "<class '_io.TextIOWrapper'>":
@@ -325,8 +325,8 @@ def concat_seqs(_seqs):
         _new_seq += str(_seq.seq)
 
     concat_ids = "|".join(concat_ids)
-    alpha = guess_alphabet(_seqs)
-    _new_seq = [SeqRecord(Seq(_new_seq, alphabet=alpha), description=concat_ids, id="concatination", features=features)]
+    _alpha = guess_alphabet(_seqs)
+    _new_seq = [SeqRecord(Seq(_new_seq, alphabet=_alpha), description=concat_ids, id="concatination", features=features)]
     _seqs = SequencePreparer(_new_seq)
     _seqs.out_format = "gb"
     return _seqs
@@ -477,6 +477,7 @@ def hash_seqeunce_ids(_seqs):
                 hash_list.append(new_hash)
                 break
         _seqs.seqs[i].id = new_hash
+        _seqs.seqs[i].name = new_hash
 
     hash_map = []
     for i in range(len(hash_list)):
@@ -631,10 +632,14 @@ if __name__ == '__main__':
     parser.add_argument('-gf', '--guess_format', action='store_true')
     parser.add_argument('-cs', '--clean_seq', action='store_true',
                         help="Strip out non-sequence characters, such as stops (*) and gaps (-)")
-    parser.add_argument('-rs', '--raw_seq', action='store_true', help="Remove all meta-data from file")
-    parser.add_argument('-tr', '--translate', action='store_true', help="Convert coding sequences into amino acid sequences")
-    parser.add_argument('-d2r', '--transcribe', action='store_true', help="Convert DNA sequences to RNA")
-    parser.add_argument('-r2d', '--back_transcribe', action='store_true', help="Convert RNA sequences to DNA")
+    parser.add_argument('-rs', '--raw_seq', action='store_true',
+                        help="Remove all meta-data from file")
+    parser.add_argument('-tr', '--translate', action='store_true',
+                        help="Convert coding sequences into amino acid sequences")
+    parser.add_argument('-d2r', '--transcribe', action='store_true',
+                        help="Convert DNA sequences to RNA")
+    parser.add_argument('-r2d', '--back_transcribe', action='store_true',
+                        help="Convert RNA sequences to DNA")
     parser.add_argument('-li', '--list_ids', action='store_true',
                         help="Output all the sequence identifiers in a file. Use -p to specify # columns to write")
     parser.add_argument('-ns', '--num_seqs', action='store_true',
@@ -649,16 +654,16 @@ if __name__ == '__main__':
                         help="Replace some pattern in ids with something else.")
     parser.add_argument('-cf', '--combine_features', action='store_true',
                         help="Takes the features in two files and combines them for each sequence")
-    parser.add_argument('-sf', '--screw_formats', action='store', help="Arguments: <out_format>")
+    parser.add_argument('-sf', '--screw_formats', action='store', metavar="<out_format>",
+                        help="Change the file format to something else.")
     parser.add_argument('-sh', '--shuffle', action='store_true',
                         help="Randomly reorder the position of records in the file.")
     parser.add_argument('-hsi', '--hash_seq_ids', action='store_true',
                         help="Rename all the identifiers in a sequence list to a 10 character hash.")
     parser.add_argument('-pr', '--pull_records', action='store',
                         help="Get all the records with ids containing a given string")
-    parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=2,
-                        help="Get the ends (front or rear) of all sequences in a file."
-                             "Arguments: <amount (int)> <front|rear>")
+    parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=2, metavar="<amount (int)> <front|rear>",
+                        help="Get the ends (front or rear) of all sequences in a file.")
     parser.add_argument('-dr', '--delete_records', action='store', nargs="+",
                         help="Remove reocrds from a file. The deleted IDs are sent to stderr.")
     parser.add_argument('-df', '--delete_features', action='store', nargs="+",
@@ -667,7 +672,8 @@ if __name__ == '__main__':
                         help="Strip repeat records (ids and/or identical sequences")
     parser.add_argument('-fr', '--find_repeats', action='store_true',
                         help="Identify whether a file contains repeat sequences and/or sequence ids")
-    parser.add_argument("-mg", "--merge", help="Group a bunch of seq files together", action="store_true")
+    parser.add_argument("-mg", "--merge", action="store_true",
+                        help="Group a bunch of seq files together",)
     parser.add_argument("-bl", "--blast", metavar="BLAST database", action="store",
                         help="BLAST your sequence file using common settings, return the hits from blastdb")
 
