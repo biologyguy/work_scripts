@@ -204,7 +204,7 @@ def blast(_seqs, blast_db):
             sys.exit("Error: Your blast database was not identified at '%s'" % blast_db)
 
     if not which("blastdbcmd"):
-        sys.exit("Error: blastdbcmd binary not found in your path. Specify with the -p flag")
+        sys.exit("Error: blastdbcmd binary not found in your path. Specify with the -p flag")  # ToDo: implement -p flag
 
     # Check that blastdb was made with the -parse_seqids flag
     extensions = ["pog", "psd", "psi"] if blast_program == "blastp" else ["nog", "nsd", "nsi"]
@@ -620,6 +620,44 @@ def rename(_seqs, query, replace=""):  # TODO Allow a replacement pattern increm
     return _seqs
 
 
+def purge(_seqs, threshold):  # ToDo: Implement a way to return a certain # of sequences (i.e. auto-determine threshold)
+    # check that blast binary is in path
+    blast_bin = "blastp" if guess_alphabet(_seqs) == IUPAC.protein else "blastn"
+    if not which(blast_bin):
+        sys.exit("Error: %s not present in $PATH.")  # ToDo: Implement -p flag
+
+    tmp_dir = TemporaryDirectory()
+    subject = "%s/subject.fa" % tmp_dir.name
+    query = "%s/query.fa" % tmp_dir.name
+    purge_set = {}
+    for _seq in _seqs.seqs:
+        _unique = True
+        with open(subject, "w") as ifile:
+            SeqIO.write(_seq, ifile, "fasta")
+
+        for _seq_id in purge_set:
+            purge_seq = purge_set[_seq_id]["seq"]
+            with open(query, "w") as ifile:
+                SeqIO.write(purge_seq, ifile, "fasta")
+            blast_res = Popen("%s -subject %s -query %s -outfmt 6" %
+                              (blast_bin, subject, query), stdout=PIPE, shell=True).communicate()
+            blast_res = blast_res[0].decode().split("\n")[0]
+            bit_score = int(blast_res.split("\t")[11])
+            if bit_score >= threshold:
+                _unique = False
+                purge_set[_seq_id]["sim_seq"].append(_seq.id)
+
+        if _unique:
+            purge_set[_seq.id] = {"seq": _seq, "sim_seq": []}
+
+    _output = {"seqs": [], "deleted": {}}
+    for _seq_id in purge_set:
+        _output["seqs"].append(purge_set[_seq_id]["seq"])
+        _output["deleted"][_seq_id] = purge_set[_seq_id]["sim_seq"]
+
+    _seqs.seqs = _output["seqs"]
+    return [_seqs, _output["deleted"]]
+
 # ################################################# COMMAND LINE UI ################################################## #
 if __name__ == '__main__':
     import argparse
@@ -676,6 +714,8 @@ if __name__ == '__main__':
                         help="Group a bunch of seq files together",)
     parser.add_argument("-bl", "--blast", metavar="BLAST database", action="store",
                         help="BLAST your sequence file using common settings, return the hits from blastdb")
+    parser.add_argument("-prg", "--purge", metavar="Max BLAST score", type=int, action="store",
+                        help="Delete sequences with high similarity")
 
     parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
@@ -696,6 +736,18 @@ if __name__ == '__main__':
     seqs = SequencePreparer(seqs)
 
     seqs.out_format = in_args.out_format if in_args.out_format else seq_set.out_format
+
+    # Purge
+    if in_args.purge:
+        in_place_allowed = True
+        purged_seqs, deleted = purge(seqs, in_args.purge)
+
+        stderr_output = "# Deleted record mapping #\n"
+        for seq_id in deleted:
+            stderr_output += "%s\n%s\n\n" % (seq_id, deleted[seq_id])
+
+        sys.stderr.write(stderr_output)
+        _print_recs(purged_seqs)
 
     # BLAST
     if in_args.blast:
