@@ -10,6 +10,7 @@ For some PartitionFinder references, see:   - Lanfear et al., 2012 doi: 10.1093/
 """
 
 from Bio import AlignIO
+from Bio.Alphabet import IUPAC
 import argparse
 import os
 import sys
@@ -18,17 +19,14 @@ from subprocess import Popen
 from time import clock
 import MyFuncs
 import seq_tools
+import shutil
 # from workshop.alignBuddy import screw_formats_align
 
 
 # !!! Replace this with a module at some point...
-def screw_formats_align(_alignments, _out_format):
+def screw_formats_align(_seqs, _out_format):
     _output = ""
     if _out_format == "phylipi":
-        if len(_alignments) > 1:
-            print("Warning: the input file contained more than one alignment, but phylip can only handle one. "
-                  "The topmost alignment is shown here.", file=sys.stderr)
-        _seqs = list(_alignments[0])
         _output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
         max_id_length = 0
         for _seq in _seqs:
@@ -38,77 +36,49 @@ def screw_formats_align(_alignments, _out_format):
             _seq_id = _seq.id.ljust(max_id_length)
             _output += "%s %s\n" % (_seq_id, _seq.seq)
     else:
-        for alignment in _alignments:
-            _output += alignment.format(_out_format)
+        for _seq in _seqs:
+            _output += _seq.format(_out_format)
 
     return _output
 
 
 def make_cfg(location, _blocks, phylip_file):
-    _output = "## ALIGNMENT FILE ##\n"
-    _output += "alignment = %s_hashed.phy;\n\n" % phylip_file
+    output = "## ALIGNMENT FILE ##\n"
+    output += "alignment = %s_hashed.phy;\n\n" % phylip_file
 
-    _output += "## BRANCHLENGTHS: linked | unlinked ##\n"
-    _output += "branchlengths = linked;\n\n"  # options linked/unlinked
+    output += "## BRANCHLENGTHS: linked | unlinked ##\n"
+    output += "branchlengths = linked;\n\n"  # options linked/unlinked
 
-    _output += "## MODELS OF EVOLUTION for PartitionFinder: all | raxml | mrbayes | beast | <list> ##\n"
-    _output += "##              for PartitionFinderProtein: all_protein | <list> ##\n"
-    models = "all" if in_args.type == "nucl" else "all_protein"
-    _output += "models = %s;\n\n" % models  # options all/some group pf models to test
+    output += "## MODELS OF EVOLUTION for PartitionFinder: all | raxml | mrbayes | beast | <list> ##\n"
+    output += "##              for PartitionFinderProtein: all_protein | <list> ##\n"
+    models = "all" if alphabet != IUPAC.protein else "all_protein"
+    output += "models = %s;\n\n" % models  # options all/some group pf models to test
 
-    _output += "# MODEL SELECCTION: AIC | AICc | BIC #\n"
-    _output += "model_selection = AIC;\n\n"
+    output += "# MODEL SELECCTION: AIC | AICc | BIC #\n"
+    output += "model_selection = AIC;\n\n"
 
-    _output += "## DATA BLOCKS: see manual for how to define ##\n"
-    _output += "[data_blocks]\n"
+    output += "## DATA BLOCKS: see manual for how to define ##\n"
+    output += "[data_blocks]\n"
 
     for _block in _blocks:
         _block = _block.split(",")
-        if in_args.codon_pos:
+        if in_args.codon_pos and alphabet != IUPAC.protein:
             for j in range(3):
-                _output += "%s_pos%s = %s-%s\\3;\n" % (_block[0], j + 1, int(_block[1]) + j, _block[2])
+                output += "%s_pos%s = %s-%s\\3;\n" % (_block[0], j + 1, int(_block[1]) + j, _block[2])
         else:
-            _output += "%s = %s-%s;\n" % (_block[0], _block[1], _block[2])
+            output += "%s = %s-%s;\n" % (_block[0], _block[1], _block[2])
 
-    _output += "\n## SCHEMES, search: all | greedy | rcluster | hcluster | user ##\n"
-    _output += "[schemes]\n"
-    _output += "search = %s;\n\n" % in_args.algorithm
+    output += "\n## SCHEMES, search: all | greedy | rcluster | hcluster | user ##\n"
+    output += "[schemes]\n"
+    output += "search = %s;\n\n" % in_args.algorithm
 
     with open("%s/partition_finder.cfg" % location, "w") as cfg:
-        cfg.write(_output)
+        cfg.write(output)
 
     return
 
-parser = argparse.ArgumentParser(prog="partitionfinder_cgf_maker",
-                                 description="Creates a new .cgf configuration file for partitionfinder",
-                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("-i", '--blocks_file',
-                    help='Location of data_blocks.csv file that lists the alignments and how to break them up.',
-                    action='store')
-parser.add_argument("-ff", "--file_format", help="Print an example 'data_blocks.csv' file and exit.",
-                    action="store_true", default=False)
-parser.add_argument("-o", "--out_dir", help='Where would you like the output directories and files?',
-                    action='store', default=os.getcwd())
-parser.add_argument("-a", "--algorithm",
-                    help="Specify which PartitionFinder algorithm you want to run. Greedy is most accurate, but to "
-                         "slow for more than 100 partitions, strict hierarchical clustering (hcluster) is fastest, but "
-                         "pretty terrible, and relaxed heirachiacal clustering (rcluster) is a good mix of speed and "
-                         "accuracy for > 100 partitions",
-                    choices=["greedy", "rcluster", "hcluster"], default="greedy")
-parser.add_argument("-c", "--codon_pos", help="Break every data block up into the three different codon positions",
-                    action="store_true", default=False)
-parser.add_argument("-t", "--type", help="DNA or protein?", action="store", choices=["prot", "nucl", "guess"],
-                    default="guess")
-parser.add_argument("-r", "--run_partfinder", help="If you want to call PartitionFinder right away, go for it!",
-                    action="store_true", default=False)
-parser.add_argument("-f", "--force", help="If you really want to force PartitionFinder to run a job that already ran.",
-                    action="store_true", default=False)
 
-in_args = parser.parse_args()
-
-start_time = round(clock())
-
-if in_args.file_format:
+def print_file_format():
     output = "# This is a comment and will be ignored\n"
     output += "Cnidaria_einsi.fa\t# alignment file name\n"
     output += "N-term,1,171\t# block name and start-stop positions. Names must be unique to this set of blocks, and " \
@@ -145,30 +115,66 @@ if in_args.file_format:
     output += "TMD6,1270,1341\n"
     output += "C-term,1342,1785\n"
     output += "//\t\t# Trailing set divider is optional\n"
-    print(output)
-    quit()
+    return output
+
+
+def get_blocks(blocks_path):
+    if not os.path.exists(blocks_path):
+        sys.exit("Can't find your data_blocks.csv file at %s" % blocks_path)
+
+    with open(blocks_path, "r") as ifile:
+        _blocks = ifile.read()
+
+    # Clean up comments and any superfluous line breaks, then bust up the blocks into a list
+    _blocks = re.sub("#.*", "", _blocks)
+    _blocks = re.sub("^\n", "", _blocks, flags=re.MULTILINE)
+    _blocks = re.sub("//\n", "//", _blocks)
+    _blocks = _blocks.split("//")
+
+    if _blocks[-1] == "":
+        _blocks = _blocks[:-1]
+
+    return _blocks
+
+parser = argparse.ArgumentParser(prog="partitionfinder_cgf_maker",
+                                 description="Creates a new .cgf configuration file for partitionfinder",
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+parser.add_argument("-i", '--blocks_file',
+                    help='Location of data_blocks.csv file that lists the alignments and how to break them up.',
+                    action='store')
+parser.add_argument("-ff", "--file_format", help="Print an example 'data_blocks.csv' file and exit.",
+                    action="store_true", default=False)
+parser.add_argument("-o", "--out_dir", help='Where would you like the output directories and files?',
+                    action='store', default=os.getcwd())
+parser.add_argument("-a", "--algorithm",
+                    help="Specify which PartitionFinder algorithm you want to run. Greedy is most accurate, but to "
+                         "slow for more than 100 partitions, strict hierarchical clustering (hcluster) is fastest, but "
+                         "pretty terrible, and relaxed heirachiacal clustering (rcluster) is a good mix of speed and "
+                         "accuracy for > 100 partitions",
+                    choices=["greedy", "rcluster", "hcluster"], default="greedy")
+parser.add_argument("-c", "--codon_pos", help="Break every data block up into the three different codon positions",
+                    action="store_true", default=False)
+parser.add_argument("-r", "--run_partfinder", help="If you want to call PartitionFinder right away, go for it!",
+                    action="store_true", default=False)
+parser.add_argument("-f", "--force", help="If you really want to force PartitionFinder to run a job that already ran.",
+                    action="store_true", default=False)
+
+in_args = parser.parse_args()
+
+start_time = round(clock())
+
+if in_args.file_format:
+    print(print_file_format())
+    sys.exit()
 
 if not in_args.blocks_file:
     sys.exit("Sorry, but you need to specify a data_blocks.csv file with -i. Use -h for instructions.")
 
 blocks_file = os.path.abspath(in_args.blocks_file)
-if not os.path.exists(blocks_file):
-    sys.exit("Can't find your data_blocks.csv file at %s" % blocks_file)
+blocks = get_blocks(blocks_file)
 
-with open(blocks_file, "r") as ifile:
-    blocks = ifile.read()
-
-# Clean up comments and any superfluous line breaks, then bust up the blocks into a list
-blocks = re.sub("#.*", "", blocks)
-blocks = re.sub("^\n", "", blocks, flags=re.MULTILINE)
-blocks = re.sub("//\n", "//", blocks)
-blocks = blocks.split("//")
-
-if blocks[-1] == "":
-    blocks = blocks[:-1]
-
-csv_dir = "/".join(blocks_file.split("/")[:-1])
-os.chdir(csv_dir)
+blocks_file_dir = "/".join(blocks_file.split("/")[:-1])
+os.chdir(blocks_file_dir)
 
 # Make sure that all files specified in data_blocks actually exist, that none of those file names are duplicates, and
 # that none of the sequence blocks within each set have duplicate ids.
@@ -178,12 +184,6 @@ for block in blocks:
     if not os.path.exists(path):
         sys.exit("Sorry, but you have specified a path in in your data_blocks file that does not seem to exist:\n%s  "
                  "not found." % path)
-
-    if in_args.type == "guess":
-        in_args.type = seq_tools.guess_alphabet(path)
-
-    if in_args.type == "prot" and in_args.codon_pos:
-        sys.exit("You have tried to subdevide a protein sequence up into codon positions with the -c flag.")
 
     file_name = path.split("/")[-1].split(".")[:-1]
     if file_name in file_names:
@@ -196,16 +196,21 @@ for block in blocks:
         seq_ranges = seq_ranges[:-1]
 
     range_ids = []
+    counter = 1
     for seq_range in seq_ranges:
-        range_id = seq_range.split(",")[0]
-        if range_id in range_ids:
+        _range = seq_range.split(",")
+        if _range[0] in range_ids:
             sys.exit("Sorry, but you have a duplicate data block id in the data_blocks file. The offender is under the %s set" % file_name)
         else:
-            range_ids.append(range_id)
+            range_ids.append(_range[0])
+        if int(_range[1]) != counter:
+            sys.exit("Blocks are not eaqually spaced. The offender is under the %s set" % file_name)
+
+        counter = int(_range[2]) + 1
 
 outdir = os.path.abspath(in_args.out_dir)
 if not os.path.exists(outdir):
-    print("Output directory not found, creating it...\n%s" % outdir)
+    print("Output directory not found, creating it...\n%s" % outdir, file=sys.stderr)
     os.mkdir(outdir)
 
 for block in blocks:
@@ -218,24 +223,21 @@ for block in blocks:
     if not os.path.exists(new_dir):
         os.mkdir(new_dir)
 
-    infile = open(path, "r")
+    seqs = seq_tools.SequencePreparer(path)
     phylip = open("%s/%s.phy" % (new_dir, file_name), "w")
     hashed_phylip = open("%s/%s_hashed.phy" % (new_dir, file_name), "w")
     hash_map = open("%s/%s_hash_map.csv" % (new_dir, file_name), "w")
 
-    alignment = AlignIO.read(infile, seq_tools.guess_format(path))
-
-    clean_alignment = screw_formats_align([alignment], "phylipi")
+    clean_alignment = screw_formats_align(seqs.seqs, "phylipi")
     phylip.write(clean_alignment)
 
-    id_hashes = seq_tools.hash_seqeunce_ids(list(alignment))
+    id_hashes = seq_tools.hash_seqeunce_ids(seqs)
     for i in id_hashes[0]:
         hash_map.write("%s,%s\n" % (i[0], i[1]))
 
-    alignment = screw_formats_align([alignment], "phylipi")
+    alignment = screw_formats_align(id_hashes[1].seqs, "phylipi")
     hashed_phylip.write(alignment)
 
-    infile.close()
     phylip.close()
     hashed_phylip.close()
     hash_map.close()
@@ -245,16 +247,47 @@ for block in blocks:
     if seq_ranges[-1] == "":
         seq_ranges = seq_ranges[:-1]
 
+    alphabet = seq_tools.guess_alphabet(seqs)
     make_cfg(new_dir, seq_ranges, file_name)
     if in_args.run_partfinder:
         os.chdir(new_dir)
 
-        program = "partitionfinder" if in_args.type == "nucl" else "partitionfinderprotein"
+        program = "partitionfinderprotein" if alphabet == IUPAC.protein else "partitionfinder"
         program += " --raxml" if in_args.algorithm != "greedy" else ""
         program += " --force-restart" if in_args.force else ""
 
         Popen("%s ./" % program, shell=True).wait()
 
-        os.chdir(csv_dir)
+        os.mkdir("./RAxML")
+        os.mkdir("./RAxML/bootstraps")
+        os.mkdir("./RAxML/cons_tree")
+        os.mkdir("./RAxML/ML_trees")
+
+        with open("./analysis/best_scheme.txt", "r") as ifile:
+            content = ifile.read()
+            content = re.findall(r"RaxML-style partition definitions\n(.*)", content, re.DOTALL)[0]
+
+        with open("./RAxML/partition.txt", "w") as ofile:
+            ofile.write(content)
+        shutil.copy("%s/%s.phy" % (new_dir, file_name), "./RAxML/")
+
+        with open("./RAxML/RAxML.sh", "w") as ofile:
+            model = "PROTGAMMAGTR" if alphabet == IUPAC.protein else "GTRGAMMA"
+            sh_output = "/usr/lib64/openmpi/1.4-gcc/bin/mpirun -np 20 /home/kochbj/bin/bin/raxmlHPC-MPI " \
+                        "-s !!!1!!!/%s/%s.phy -n %s -m %s -f d -p 12345 -N 20 -w !!!1!!!/%s/ML_trees/ " \
+                        "-q !!!1!!!/%s/partition.txt;\n" % (file_name, file_name, file_name, model, file_name, file_name)
+
+            sh_output += "/usr/lib64/openmpi/1.4-gcc/bin/mpirun -np 20 /home/kochbj/bin/bin/raxmlHPC-MPI " \
+                         "-s !!!1!!!/%s/%s.phy -n %s -m %s -f d -p 12345 -b 12345 -N 100 " \
+                         "-w !!!1!!!/%s/bootstraps/ -q !!!1!!!/%s/partition.txt;\n" % (file_name, file_name, file_name, model, file_name, file_name)
+
+            sh_output += "/home/bondsr/bin/best_ML_tree.py !!!1!!!/%s/ML_trees/RAxML_info.%s;\n" % (file_name, file_name)
+
+            sh_output += "/home/bondsr/bin/raxmlHPC-PTHREADS-SSE3 -n %s -m %s -f b -p 12345 -T 2 " \
+                         "-w !!!1!!!/%s/cons_tree/ -t !!!1!!!/%s/ML_trees/RAxML_best.%s " \
+                         "-z !!!1!!!/%s/bootstraps/RAxML_bootstrap.%s;\n" % (file_name, model, file_name, file_name, file_name, file_name, file_name)
+            ofile.write(sh_output)
+
+        os.chdir(blocks_file_dir)
 
 print("Job complete, it ran in %s" % MyFuncs.pretty_time(round(clock()) - start_time))
