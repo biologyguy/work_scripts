@@ -23,6 +23,12 @@ from tempfile import TemporaryDirectory
 from subprocess import Popen, PIPE
 from shutil import which
 
+# This will suppress the SearchIO warning, but be aware that new versions of BioPython may break SearchIO
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    from Bio import SearchIO
+
 
 # ##################################################### WISH LIST #################################################### #
 def get_genbank_file():
