@@ -41,6 +41,10 @@ def order_features_by_alpha():
     x = 1
 
 
+def denroblast(_seqs):
+    x = 1
+
+
 # ################################################ INTERNAL FUNCTIONS ################################################ #
 def _set_alphabet(_seqs, _alpha=None):  # update sequence alphabet in place
     if not _alpha:
@@ -142,7 +146,7 @@ def guess_format(_input):  # _input can be list, SequencePreparer object, file h
                     return _format
                 else:
                     continue
-            except:
+            except ValueError:  # ToDo check that other types of error are not possible
                 continue
         return None  # Unable to determine format from file handle
 
@@ -565,9 +569,9 @@ def find_repeats(_seqs):
 
 def delete_records(_seqs, search_str):
     _output = []
-    deleted = pull_recs(copy(_seqs), search_str).seqs
+    _deleted = pull_recs(copy(_seqs), search_str).seqs
     for _seq in _seqs.seqs:
-        if _seq in deleted:
+        if _seq in _deleted:
             continue
         else:
             _output.append(_seq)
@@ -621,28 +625,14 @@ def rename(_seqs, query, replace=""):  # TODO Allow a replacement pattern increm
 
 
 def purge(_seqs, threshold):  # ToDo: Implement a way to return a certain # of sequences (i.e. auto-determine threshold)
-    # check that blast binary is in path
-    blast_bin = "blastp" if guess_alphabet(_seqs) == IUPAC.protein else "blastn"
-    if not which(blast_bin):
-        sys.exit("Error: %s not present in $PATH.")  # ToDo: Implement -p flag
-
-    tmp_dir = TemporaryDirectory()
-    subject = "%s/subject.fa" % tmp_dir.name
-    query = "%s/query.fa" % tmp_dir.name
     purge_set = {}
     for _seq in _seqs.seqs:
         _unique = True
-        with open(subject, "w") as ifile:
-            SeqIO.write(_seq, ifile, "fasta")
-
         for _seq_id in purge_set:
             purge_seq = purge_set[_seq_id]["seq"]
-            with open(query, "w") as ifile:
-                SeqIO.write(purge_seq, ifile, "fasta")
-            blast_res = Popen("%s -subject %s -query %s -outfmt 6" %
-                              (blast_bin, subject, query), stdout=PIPE, shell=True).communicate()
-            blast_res = blast_res[0].decode().split("\n")[0]
-            bit_score = int(blast_res.split("\t")[11])
+            blast_seqs = SequencePreparer([_seq, purge_seq])
+            blast_res = bl2seq(blast_seqs)
+            bit_score = float(blast_res.split("\t")[5])
             if bit_score >= threshold:
                 _unique = False
                 purge_set[_seq_id]["sim_seq"].append(_seq.id)
@@ -657,6 +647,38 @@ def purge(_seqs, threshold):  # ToDo: Implement a way to return a certain # of s
 
     _seqs.seqs = _output["seqs"]
     return [_seqs, _output["deleted"]]
+
+
+def bl2seq(_seqs):  # Does an all-by-all analysis, and does not return sequences
+    blast_bin = "blastp" if guess_alphabet(_seqs) == IUPAC.protein else "blastn"
+    if not which(blast_bin):
+        sys.exit("Error: %s not present in $PATH.")  # ToDo: Implement -p flag
+
+    tmp_dir = TemporaryDirectory()
+    _seqs_copy = _seqs.seqs[1:]
+    subject_file = "%s/subject.fa" % tmp_dir.name
+    query_file = "%s/query.fa" % tmp_dir.name
+    _output = ""
+    for subject in _seqs.seqs:
+        with open(subject_file, "w") as ifile:
+            SeqIO.write(subject, ifile, "fasta")
+
+        for query in _seqs_copy:
+            with open(query_file, "w") as ifile:
+                SeqIO.write(query, ifile, "fasta")
+
+            blast_res = Popen("%s -subject %s -query %s -outfmt 6" %
+                              (blast_bin, subject_file, query_file), stdout=PIPE, shell=True).communicate()
+            blast_res = blast_res[0].decode().split("\n")[0].split("\t")
+            if len(blast_res) == 1:
+                _output += "%s\t%s\t0\t0\t0\t0\n" % (subject.id, query.id)
+            else:
+                _output += "%s\t%s\t%s\t%s\t%s\t%s\n" % (blast_res[0], blast_res[1], blast_res[2],
+                                                         blast_res[3], blast_res[10], blast_res[11])
+
+        _seqs_copy = _seqs_copy[1:]
+    return _output.strip()
+
 
 # ################################################# COMMAND LINE UI ################################################## #
 if __name__ == '__main__':
@@ -714,6 +736,8 @@ if __name__ == '__main__':
                         help="Group a bunch of seq files together",)
     parser.add_argument("-bl", "--blast", metavar="BLAST database", action="store",
                         help="BLAST your sequence file using common settings, return the hits from blastdb")
+    parser.add_argument("-bl2s", "--bl2seq", action="store_true",
+                        help="All-by-all blast amoung sequences using bl2seq. Returns only the top hit from each search.")
     parser.add_argument("-prg", "--purge", metavar="Max BLAST score", type=int, action="store",
                         help="Delete sequences with high similarity")
 
@@ -748,6 +772,11 @@ if __name__ == '__main__':
 
         sys.stderr.write(stderr_output)
         _print_recs(purged_seqs)
+
+    # BL2SEQ
+    if in_args.bl2seq:
+        sys.stderr.write("#query\tsubject\t%_ident\tlength\tevalue\tbit_score\n")
+        sys.stdout.write("%s\n" % bl2seq(seqs))
 
     # BLAST
     if in_args.blast:
