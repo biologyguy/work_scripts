@@ -5,6 +5,8 @@
 """
 Collection of functions that do fun stuff with sequences. Pull them into a script, or run as a command line tool.
 """
+
+# Standard library imports
 import pdb
 import sys
 import os
@@ -13,15 +15,20 @@ import string
 from copy import copy
 from random import sample, choice, randint
 from math import ceil
-from Bio import SeqIO, SearchIO
+from tempfile import TemporaryDirectory
+from subprocess import Popen, PIPE
+from shutil import which
+
+# Third party package imports
+from Bio import SeqIO
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio.Alphabet import IUPAC
 from Bio.Data.CodonTable import TranslationError
-from tempfile import TemporaryDirectory
-from subprocess import Popen, PIPE
-from shutil import which
+from scipy.cluster.hierarchy import linkage, to_tree, dendrogram
+import numpy as np
+import matplotlib.pylab as plt
 
 # This will suppress the SearchIO warning, but be aware that new versions of BioPython may break SearchIO
 import warnings
@@ -44,10 +51,6 @@ def order_features_by_position():
 
 
 def order_features_by_alpha():
-    x = 1
-
-
-def denroblast(_seqs):
     x = 1
 
 
@@ -679,11 +682,53 @@ def bl2seq(_seqs):  # Does an all-by-all analysis, and does not return sequences
             if len(blast_res) == 1:
                 _output += "%s\t%s\t0\t0\t0\t0\n" % (subject.id, query.id)
             else:
+                # values are: query, subject, %_ident, length, evalue, bit_score
                 _output += "%s\t%s\t%s\t%s\t%s\t%s\n" % (blast_res[0], blast_res[1], blast_res[2],
-                                                         blast_res[3], blast_res[10], blast_res[11])
+                                                         blast_res[3], blast_res[10], blast_res[11].strip())
 
         _seqs_copy = _seqs_copy[1:]
     return _output.strip()
+
+
+def denroblast(_seqs):  # This does not work yet... See Kelly and Maini, 2013, PlosONE
+    blast_res = bl2seq(_seqs).split("\n")
+
+    # format the data into a dictionary for easier manipulation
+    dist_dict = {}
+    for pair in blast_res:
+        pair = pair.split("\t")
+        if pair[0] in dist_dict:
+            dist_dict[pair[0]][pair[1]] = float(pair[5])
+        else:
+            dist_dict[pair[0]] = {pair[1]: float(pair[5])}
+
+        if pair[1] in dist_dict:
+            dist_dict[pair[1]][pair[0]] = float(pair[5])
+        else:
+            dist_dict[pair[1]] = {pair[0]: float(pair[5])}
+
+    # make a numpy array and headings list
+    dist_array = np.zeros([len(_seqs.seqs), len(_seqs.seqs)])
+    headings = []
+    i = 0
+    for _seq1 in _seqs.seqs:
+        headings.append(_seq1.id)
+        j = 0
+        for _seq2 in _seqs.seqs:
+            if _seq1.id != _seq2.id:
+                dist_array[i][j] = dist_dict[_seq1.id][_seq2.id]
+            j += 1
+        i += 1
+
+
+    headings.reverse()
+    print(headings)
+    data_link = linkage(dist_array, method='complete')
+    dendrogram(data_link, labels=headings)
+    plt.xticks(fontsize=8, rotation=90)
+    plt.savefig("dendrogram.svg", format='svg')
+    plt.show()
+
 
 
 # ################################################# COMMAND LINE UI ################################################## #
@@ -746,6 +791,8 @@ if __name__ == '__main__':
                         help="All-by-all blast amoung sequences using bl2seq. Returns only the top hit from each search.")
     parser.add_argument("-prg", "--purge", metavar="Max BLAST score", type=int, action="store",
                         help="Delete sequences with high similarity")
+    parser.add_argument("-drb", "--dendroblast", action="store_true",
+                        help="Create a dendrogram from pairwise blast bit-scores. Returns newick format.")
 
     parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
@@ -766,6 +813,10 @@ if __name__ == '__main__':
     seqs = SequencePreparer(seqs)
 
     seqs.out_format = in_args.out_format if in_args.out_format else seq_set.out_format
+
+    # DendroBlast
+    if in_args.dendroblast:
+        denroblast(seqs)
 
     # Purge
     if in_args.purge:
