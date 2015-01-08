@@ -55,12 +55,6 @@ def order_features_by_alpha():
 
 
 # ################################################ INTERNAL FUNCTIONS ################################################ #
-def _set_alphabet(_seqs, _alpha=None):  # update sequence alphabet in place
-    if not _alpha:
-        _alpha = guess_alphabet(_seqs)
-    for i in range(len(_seqs.seqs)):
-        _seqs.seqs[i].seq.alphabet = _alpha
-    return _seqs
 
 
 def _print_recs(_seqs):  # TODO: Remove the calls to in_args
@@ -128,6 +122,11 @@ class SequencePreparer():  # Open a file or read a handle and parse, or convert 
         else:
             _sequences = [SeqRecord(Seq(_input))]
 
+        self.alpha = guess_alphabet(_sequences)
+
+        for _i in range(len(_sequences)):
+            _sequences[_i].seq.alphabet = self.alpha
+
         self.seqs = _sequences
 
 
@@ -155,7 +154,9 @@ def guess_format(_input):  # _input can be list, SequencePreparer object, file h
                     return _format
                 else:
                     continue
-            except ValueError:  # ToDo check that other types of error are not possible
+            except StopIteration:  # ToDo check that other types of error are not possible
+                continue
+            except ValueError:
                 continue
         return None  # Unable to determine format from file handle
 
@@ -199,7 +200,7 @@ def phylipi(_input, _format="relaxed"):  # _format in ["strict", "relaxed"]
 
 
 def blast(_seqs, blast_db):
-    blast_program = "blastp" if guess_alphabet(_seqs) == IUPAC.protein else "blastn"
+    blast_program = "blastp" if _seqs.alpha == IUPAC.protein else "blastn"
 
     # ToDo Check NCBI++ tools are a conducive version (2.2.29 and above, I think [maybe .28])
 
@@ -229,7 +230,7 @@ def blast(_seqs, blast_db):
     tmp_dir = TemporaryDirectory()
     with open("%s/tmp.fa" % tmp_dir.name, "w") as ofile:
         SeqIO.write(_seqs.seqs, ofile, "fasta")
-    blast_program = "blastp" if guess_alphabet(_seqs) == IUPAC.protein else "blastn"
+    blast_program = "blastp" if _seqs.alpha == IUPAC.protein else "blastn"
     Popen("%s -db %s -query %s/tmp.fa -out %s/out.txt -num_threads 20 -evalue 0.01 -outfmt 6" %
           (blast_program, blast_db, tmp_dir.name, tmp_dir.name), shell=True).wait()
 
@@ -290,8 +291,9 @@ def dna2rna(_seqs):
 
 
 def guess_alphabet(_seqs):  # Does not handle ambiguous dna
+    _seqs = _seqs if isinstance(_seqs, list) else seqs.seqs
     _sequence = ""
-    for next_seq in _seqs.seqs:
+    for next_seq in _seqs:
         if len(_sequence) > 1000:
             break
         _sequence += re.sub("[NX\-?]", "", str(next_seq.seq))
@@ -338,8 +340,7 @@ def concat_seqs(_seqs):
         _new_seq += str(_seq.seq)
 
     concat_ids = "|".join(concat_ids)
-    _alpha = guess_alphabet(_seqs)
-    _new_seq = [SeqRecord(Seq(_new_seq, alphabet=_alpha), description=concat_ids, id="concatination", features=features)]
+    _new_seq = [SeqRecord(Seq(_new_seq, alphabet=_seqs.alpha), description=concat_ids, id="concatination", features=features)]
     _seqs = SequencePreparer(_new_seq)
     _seqs.out_format = "gb"
     return _seqs
@@ -348,13 +349,12 @@ def concat_seqs(_seqs):
 def clean_seq(_seqs):
     """remove all non-sequence chracters from sequence strings"""
     _output = []
-    _alpha = guess_alphabet(_seqs)
     for _seq in _seqs.seqs:
         _seq.seq = str(_seq.seq).upper()
-        if _alpha == IUPAC.protein:
-            _seq.seq = Seq(re.sub("[^ACDEFGHIKLMNPQRSTVWXY]", "", str(_seq.seq)), alphabet=_alpha)
+        if _seqs.alpha == IUPAC.protein:
+            _seq.seq = Seq(re.sub("[^ACDEFGHIKLMNPQRSTVWXY]", "", str(_seq.seq)), alphabet=_seqs.alpha)
         else:
-            _seq.seq = Seq(re.sub("[^ATGCXNU]", "", str(_seq.seq)), alphabet=_alpha)
+            _seq.seq = Seq(re.sub("[^ATGCXNU]", "", str(_seq.seq)), alphabet=_seqs.alpha)
 
         _output.append(_seq)
 
@@ -659,7 +659,7 @@ def purge(_seqs, threshold):  # ToDo: Implement a way to return a certain # of s
 
 
 def bl2seq(_seqs):  # Does an all-by-all analysis, and does not return sequences
-    blast_bin = "blastp" if guess_alphabet(_seqs) == IUPAC.protein else "blastn"
+    blast_bin = "blastp" if _seqs.alpha == IUPAC.protein else "blastn"
     if not which(blast_bin):
         sys.exit("Error: %s not present in $PATH.")  # ToDo: Implement -p flag
 
@@ -720,7 +720,6 @@ def denroblast(_seqs):  # This does not work yet... See Kelly and Maini, 2013, P
             j += 1
         i += 1
 
-
     headings.reverse()
     print(headings)
     data_link = linkage(dist_array, method='complete')
@@ -728,7 +727,6 @@ def denroblast(_seqs):  # This does not work yet... See Kelly and Maini, 2013, P
     plt.xticks(fontsize=8, rotation=90)
     plt.savefig("dendrogram.svg", format='svg')
     plt.show()
-
 
 
 # ################################################# COMMAND LINE UI ################################################## #
@@ -963,7 +961,7 @@ if __name__ == '__main__':
     # Transcribe
     if in_args.transcribe:
         in_place_allowed = True
-        if guess_alphabet(seqs) != IUPAC.ambiguous_dna:
+        if seqs.alpha != IUPAC.ambiguous_dna:
             sys.exit("Error: You need to provide a DNA sequence.")
         seqs = dna2rna(seqs)
         _print_recs(seqs)
@@ -971,7 +969,7 @@ if __name__ == '__main__':
     # Back Transcribe
     if in_args.back_transcribe:
         in_place_allowed = True
-        if guess_alphabet(seqs) != IUPAC.ambiguous_rna:
+        if seqs.alpha != IUPAC.ambiguous_rna:
             sys.exit("Error: You need to provide an RNA sequence.")
         seqs = rna2dna(seqs)
         _print_recs(seqs)
@@ -994,7 +992,7 @@ if __name__ == '__main__':
     # Translate CDS
     if in_args.translate:
         in_place_allowed = True
-        if guess_alphabet(seqs) == IUPAC.protein:
+        if seqs.alpha == IUPAC.protein:
             sys.exit("Error: you need to supply DNA or RNA sequences to translate")
         _print_recs(translate_cds(seqs))
 
@@ -1068,12 +1066,11 @@ if __name__ == '__main__':
 
     # Guess alphabet
     if in_args.guess_alphabet:
-        alpha = guess_alphabet(seqs)
-        if alpha == IUPAC.protein:
+        if seqs.alpha == IUPAC.protein:
             sys.stdout.write("prot\n%s\n")
-        elif alpha == IUPAC.ambiguous_dna:
+        elif seqs.alpha == IUPAC.ambiguous_dna:
             sys.stdout.write("dna\n")
-        elif alpha == IUPAC.ambiguous_rna:
+        elif seqs.alpha == IUPAC.ambiguous_rna:
             sys.stdout.write("rna\n")
         else:
             sys.stdout.write("Undetermined\n")
@@ -1104,10 +1101,10 @@ if __name__ == '__main__':
         file1 = SequencePreparer(file1)
         file2 = SequencePreparer(file2)
 
-        if guess_alphabet(file1) == guess_alphabet(file2):
+        if file1.alpha == file2.alpha:
             sys.exit("Error: You must provide one DNA file and one protein file")
 
-        if guess_alphabet(file1) == IUPAC.protein:
+        if file1.alpha == IUPAC.protein:
             prot = file1
             dna = file2
         else:
@@ -1127,10 +1124,10 @@ if __name__ == '__main__':
         file1 = SequencePreparer(file1)
         file2 = SequencePreparer(file2)
 
-        if guess_alphabet(file1) == guess_alphabet(file2):
+        if file1.alpha == file2.alpha:
             sys.exit("Error: You must provide one DNA file and one protein file")
 
-        if guess_alphabet(file1) != IUPAC.protein:
+        if file1.alpha != IUPAC.protein:
             dna = file1
             prot = file2
         else:
