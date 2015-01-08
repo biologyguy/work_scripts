@@ -362,6 +362,14 @@ def clean_seq(_seqs):
     return _seqs
 
 
+def delete_metadata(_seqs):
+    _new_seqs = []
+    for _seq in _seqs.seqs:
+        _new_seqs.append(SeqRecord(Seq(str(_seq.seq), alphabet=_seqs.alpha), id=_seq.id, name='', description=''))
+    _seqs.seqs = _new_seqs
+    return _seqs
+
+
 # Apply DNA features to protein sequences
 def map_features_dna2prot(dna_seqs, prot_seqs):  # TODO: Figure out if this is broken
     prot_dict = SeqIO.to_dict(prot_seqs)
@@ -741,8 +749,10 @@ if __name__ == '__main__':
     parser.add_argument('-gf', '--guess_format', action='store_true')
     parser.add_argument('-cs', '--clean_seq', action='store_true',
                         help="Strip out non-sequence characters, such as stops (*) and gaps (-)")
+    parser.add_argument('-dm', '--delete_metadata', action='store_true',
+                        help="Remove meta-data from file (only id is retained)")
     parser.add_argument('-rs', '--raw_seq', action='store_true',
-                        help="Remove all meta-data from file")
+                        help="Return line break separated sequences")
     parser.add_argument('-tr', '--translate', action='store_true',
                         help="Convert coding sequences into amino acid sequences")
     parser.add_argument('-d2r', '--transcribe', action='store_true',
@@ -1074,6 +1084,11 @@ if __name__ == '__main__':
             sys.stdout.write("rna\n")
         else:
             sys.stdout.write("Undetermined\n")
+
+    # Delete metadata
+    if in_args.delete_metadata:
+        in_place_allowed = True
+        _print_recs(delete_metadata(seqs))
 
     # Raw Seq
     if in_args.raw_seq:
