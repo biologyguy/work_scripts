@@ -69,12 +69,12 @@ def _print_recs(_seqs):  # TODO: Remove the calls to in_args
         _output = phylipi(_seqs, "strict")
 
     else:
-        _output = ""
-        for _rec in _seqs.seqs:
-            try:
-                _output += _rec.format(_seqs.out_format) + "\n"
-            except ValueError as e:
-                sys.stderr.write("Error: %s\n" % e)
+        tmp_dir = TemporaryDirectory()
+        with open("%s/seqs.tmp" % tmp_dir.name, "w") as ofile:
+            SeqIO.write(_seqs.seqs, ofile, _seqs.out_format)
+
+        with open("%s/seqs.tmp" % tmp_dir.name, "r") as ifile:
+            _output = ifile.read()
 
     if in_args.in_place and in_place_allowed:
         if not os.path.exists(in_args.sequence[0]):
