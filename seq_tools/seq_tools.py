@@ -96,6 +96,26 @@ class SequencePreparer():  # Open a file or read a handle and parse, or convert 
         self.seqs = _sequences
 
 
+def guess_alphabet(_seqs):  # Does not handle ambiguous dna
+    _seqs = _seqs if isinstance(_seqs, list) else seqs.seqs
+    _sequence = ""
+    for next_seq in _seqs:
+        if len(_sequence) > 1000:
+            break
+        _sequence += re.sub("[NX\-?]", "", str(next_seq.seq))
+        _sequence = _sequence.upper()
+
+    if len(_sequence) == 0:
+        return None
+    percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
+                        _sequence.count("C") + _sequence.count("U")) / float(len(_sequence))
+    if percent_dna > 0.95:
+        nucl = IUPAC.ambiguous_rna if float(_sequence.count("U")) / float(len(_sequence)) > 0.05 else IUPAC.ambiguous_dna
+        return nucl
+    else:
+        return IUPAC.protein
+
+
 def guess_format(_input):  # _input can be list, SequencePreparer object, file handle, or file path.
     # If input is just a list, there is no BioPython in-format. Default to permissive gb.
     if isinstance(_input, list):
@@ -256,25 +276,6 @@ def dna2rna(_seqs):
     return _seqs
 
 
-def guess_alphabet(_seqs):  # Does not handle ambiguous dna
-    _seqs = _seqs if isinstance(_seqs, list) else seqs.seqs
-    _sequence = ""
-    for next_seq in _seqs:
-        if len(_sequence) > 1000:
-            break
-        _sequence += re.sub("[NX\-?]", "", str(next_seq.seq))
-
-    if len(_sequence) == 0:
-        return None
-    percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
-                        _sequence.count("C") + _sequence.count("U")) / float(len(_sequence))
-    if percent_dna > 0.95:
-        nucl = IUPAC.ambiguous_rna if float(_sequence.count("U")) / float(len(_sequence)) > 0.05 else IUPAC.ambiguous_dna
-        return nucl
-    else:
-        return IUPAC.protein
-
-
 def translate_cds(_seqs):
     _output = []
     for _seq in _seqs.seqs:
@@ -337,9 +338,9 @@ def delete_metadata(_seqs):
 
 
 # Apply DNA features to protein sequences
-def map_features_dna2prot(dna_seqs, prot_seqs):  # TODO: Figure out if this is broken
-    prot_dict = SeqIO.to_dict(prot_seqs)
-    dna_dict = SeqIO.to_dict(dna_seqs)
+def map_features_dna2prot(dna_seqs, prot_seqs):
+    prot_dict = SeqIO.to_dict(prot_seqs.seqs)
+    dna_dict = SeqIO.to_dict(dna_seqs.seqs)
     _new_seqs = {}
     for _seq_id in dna_dict:
         if _seq_id not in prot_dict:
@@ -349,23 +350,26 @@ def map_features_dna2prot(dna_seqs, prot_seqs):  # TODO: Figure out if this is b
         _new_seqs[_seq_id] = prot_dict[_seq_id]
 
         for feature in dna_dict[_seq_id].features:
-            start = (feature.location.start + 2) / 3
+            start = feature.location.start / 3
             end = feature.location.end / 3
-            new_feature = SeqFeature(location=FeatureLocation(ceil(start), ceil(end)), type=feature.type)
-            prot_dict[_seq_id].features.append(new_feature)
+            location = FeatureLocation(ceil(start), ceil(end))
+            feature.location = location
+            prot_dict[_seq_id].features.append(feature)
 
     for _seq_id in prot_dict:
         if _seq_id not in dna_dict:
             sys.stderr.write("Warning: %s is in cDNA file, but not protein file\n" % _seq_id)
 
     _seqs_list = [_new_seqs[_seq_id] for _seq_id in _new_seqs]
-    return _seqs_list
+    _seqs = SequencePreparer(_seqs_list)
+    _seqs.out_format = "gb"
+    return _seqs
 
 
 # Apply DNA features to protein sequences
-def map_features_prot2dna(prot_seqs, dna_seqs):  # TODO: Figure out if this is broken
-    prot_dict = SeqIO.to_dict(prot_seqs)
-    dna_dict = SeqIO.to_dict(dna_seqs)
+def map_features_prot2dna(prot_seqs, dna_seqs):
+    prot_dict = SeqIO.to_dict(prot_seqs.seqs)
+    dna_dict = SeqIO.to_dict(dna_seqs.seqs)
     _new_seqs = {}
     for _seq_id in prot_dict:
         if _seq_id not in dna_dict:
@@ -375,17 +379,20 @@ def map_features_prot2dna(prot_seqs, dna_seqs):  # TODO: Figure out if this is b
         _new_seqs[_seq_id] = dna_dict[_seq_id]
 
         for feature in prot_dict[_seq_id].features:
-            start = feature.location.start * 3 - 2
+            start = feature.location.start * 3
             end = feature.location.end * 3
-            new_feature = SeqFeature(location=FeatureLocation(start, end), type=feature.type)
-            dna_dict[_seq_id].features.append(new_feature)
+            location = FeatureLocation(start, end)
+            feature.location = location
+            dna_dict[_seq_id].features.append(feature)
 
     for _seq_id in dna_dict:
         if _seq_id not in prot_dict:
             sys.stderr.write("Warning: %s is in cDNA file, but not protein file\n" % _seq_id)
 
     _seqs_list = [_new_seqs[_seq_id] for _seq_id in _new_seqs]
-    return _seqs_list
+    _seqs = SequencePreparer(_seqs_list)
+    _seqs.out_format = "gb"
+    return _seqs
 
 
 # Merge feature lists
@@ -1076,7 +1083,7 @@ if __name__ == '__main__':
     # Guess alphabet
     if in_args.guess_alphabet:
         if seqs.alpha == IUPAC.protein:
-            sys.stdout.write("prot\n%s\n")
+            sys.stdout.write("prot\n")
         elif seqs.alpha == IUPAC.ambiguous_dna:
             sys.stdout.write("dna\n")
         elif seqs.alpha == IUPAC.ambiguous_rna:
@@ -1107,7 +1114,7 @@ if __name__ == '__main__':
         for seq_set in in_args.sequence:
             sys.stdout.write("%s\t-->\t%s\n" % (seq_set, SequencePreparer(seq_set).in_format))
 
-    # Map features from cDNA over to protein TODO: Check if broken
+    # Map features from cDNA over to protein
     if in_args.map_features_dna2prot:
         in_place_allowed = True
         file1, file2 = in_args.sequence[:2]
@@ -1127,10 +1134,9 @@ if __name__ == '__main__':
             dna = file1
 
         new_seqs = map_features_dna2prot(dna, prot)
-        out_format = "gb"
         _print_recs(new_seqs)
 
-    # Map features from protein over to cDNA TODO: Check if broken
+    # Map features from protein over to cDNA
     if in_args.map_features_prot2dna:
         in_place_allowed = True
         file1, file2 = in_args.sequence[:2]
@@ -1150,7 +1156,6 @@ if __name__ == '__main__':
             prot = file1
 
         new_seqs = map_features_prot2dna(prot, dna)
-        out_format = "gb"
         _print_recs(new_seqs)
 
     # Combine feature sets from two files into one
