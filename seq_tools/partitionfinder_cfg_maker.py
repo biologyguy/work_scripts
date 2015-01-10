@@ -223,7 +223,7 @@ for block in blocks:
     if not os.path.exists(new_dir):
         os.mkdir(new_dir)
 
-    seqs = seq_tools.SequencePreparer(path)
+    seqs = seq_tools.SeqBuddy(path)
     phylip = open("%s/%s.phy" % (new_dir, file_name), "w")
     hashed_phylip = open("%s/%s_hashed.phy" % (new_dir, file_name), "w")
     hash_map = open("%s/%s_hash_map.csv" % (new_dir, file_name), "w")

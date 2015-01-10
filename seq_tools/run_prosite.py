@@ -90,7 +90,7 @@ if __name__ == '__main__':
 
     in_args = parser.parse_args()
 
-    sequences = seq_tools.SequencePreparer(in_args.in_file)
+    sequences = seq_tools.SeqBuddy(in_args.in_file)
     gb_file = os.path.abspath(in_args.gb_file)
     prosite_scan_client = in_args.prosite_client  # "/Users/bondsr/Documents/public_scripts/ps_scan_py3.py"
 

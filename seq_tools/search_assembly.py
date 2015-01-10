@@ -10,14 +10,14 @@ from multiprocessing import Lock
 from Bio import SearchIO
 from Bio import SeqIO
 from Bio.Seq import Seq
-from seq_tools import blast, SequencePreparer, guess_alphabet, rename
+from seq_tools import blast, SeqBuddy, guess_alphabet, rename
 
 
 class SeqTools():
     def __init__(self, fasta_file, outdir, seq_type=False):
         self.fasta_file = os.path.abspath(fasta_file)
 
-        if guess_alphabet(SequencePreparer(self.fasta_file)) == "prot":
+        if guess_alphabet(SeqBuddy(self.fasta_file)) == "prot":
             sys.exit("Error: Can't run transdecoder on a protein database.")
 
         self.name = "_".join(fasta_file.split("/")[-1].split(".")[:-1])
@@ -72,7 +72,7 @@ class SeqTools():
                 shutil.move(next_file, "%s/%s" % (self.trans_d_dir, new_name))
                 # Clean up the ids of the output files
                 if extension in ["cds", "pep", "mRNA"]:
-                    out_seqs = SequencePreparer("%s/%s" % (self.trans_d_dir, new_name))
+                    out_seqs = SeqBuddy("%s/%s" % (self.trans_d_dir, new_name))
                     rename(out_seqs, ".*\|m\.", "m")
                     with open("%s/%s" % (self.trans_d_dir, new_name), "w") as ofile:
                         SeqIO.write(out_seqs, ofile, "fasta")
@@ -134,7 +134,7 @@ class SeqTools():
         if not os.path.exists(self.blast_out_dir):
             os.mkdir(self.blast_out_dir)
 
-        query_seqs = SequencePreparer(query_file)
+        query_seqs = SeqBuddy(query_file)
         seq_type = guess_alphabet(query_seqs)
 
         blast_hits = blast(query_seqs, "%s/%s_%s" % (self.blastdb_dir, self.name, seq_type))

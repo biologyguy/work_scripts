@@ -57,18 +57,18 @@ def order_features_by_alpha():
 # ################################################# HELPER FUNCTIONS ################################################# #
 
 
-class SequencePreparer():  # Open a file or read a handle and parse, or convert raw into a Seq object
+class SeqBuddy():  # Open a file or read a handle and parse, or convert raw into a Seq object
     def __init__(self, _input, _in_format=None, _out_format=None):
         if not _in_format:
             self.in_format = guess_format(_input)
             self.out_format = str(self.in_format) if not _out_format else _out_format
         if not self.in_format:
-            sys.exit("Error: could not determine the seq format in SequencePreparer(). "
+            sys.exit("Error: could not determine the seq format in SeqBuddy(). "
                      "Try explicitly setting with -f flag.")
 
         self.out_format = self.in_format if not _out_format else _out_format
 
-        if str(type(_input)) == "<class '__main__.SequencePreparer'>":
+        if str(type(_input)) == "<class '__main__.SeqBuddy'>":
             _sequences = _input.seqs
 
         elif isinstance(_input, list):
@@ -116,13 +116,13 @@ def guess_alphabet(_seqs):  # Does not handle ambiguous dna
         return IUPAC.protein
 
 
-def guess_format(_input):  # _input can be list, SequencePreparer object, file handle, or file path.
+def guess_format(_input):  # _input can be list, SeqBuddy object, file handle, or file path.
     # If input is just a list, there is no BioPython in-format. Default to permissive gb.
     if isinstance(_input, list):
         return "gb"
 
     # Pull value directly from object if appropriate
-    if str(type(_input)) == "<class '__main__.SequencePreparer'>":
+    if str(type(_input)) == "<class '__main__.SeqBuddy'>":
         return _input.in_format
 
     # If input is a handle or path, try to read the file in each format, and assume success if not error and # seqs > 0
@@ -244,7 +244,7 @@ def blast(_seqs, blast_db):
     ofile.close()
 
     with open("%s/seqs.fa" % tmp_dir.name, "r") as ifile:
-        _new_seqs = SequencePreparer(ifile)
+        _new_seqs = SeqBuddy(ifile)
 
     return _new_seqs
 
@@ -308,7 +308,7 @@ def concat_seqs(_seqs):
 
     concat_ids = "|".join(concat_ids)
     _new_seq = [SeqRecord(Seq(_new_seq, alphabet=_seqs.alpha), description=concat_ids, id="concatination", features=features)]
-    _seqs = SequencePreparer(_new_seq)
+    _seqs = SeqBuddy(_new_seq)
     _seqs.out_format = "gb"
     return _seqs
 
@@ -361,7 +361,7 @@ def map_features_dna2prot(dna_seqs, prot_seqs):
             sys.stderr.write("Warning: %s is in cDNA file, but not protein file\n" % _seq_id)
 
     _seqs_list = [_new_seqs[_seq_id] for _seq_id in _new_seqs]
-    _seqs = SequencePreparer(_seqs_list)
+    _seqs = SeqBuddy(_seqs_list)
     _seqs.out_format = "gb"
     return _seqs
 
@@ -390,7 +390,7 @@ def map_features_prot2dna(prot_seqs, dna_seqs):
             sys.stderr.write("Warning: %s is in cDNA file, but not protein file\n" % _seq_id)
 
     _seqs_list = [_new_seqs[_seq_id] for _seq_id in _new_seqs]
-    _seqs = SequencePreparer(_seqs_list)
+    _seqs = SeqBuddy(_seqs_list)
     _seqs.out_format = "gb"
     return _seqs
 
@@ -453,7 +453,7 @@ def combine_features(seqs1, seqs2):
             sys.stderr.write("Warning: %s is only in the first set of sequences\n" % _seq_id)
             _new_seqs[_seq_id] = seq_dict2[_seq_id]
 
-    _new_seqs = SequencePreparer([_new_seqs[_seq_id] for _seq_id in _new_seqs], _out_format=seqs1.in_format)
+    _new_seqs = SeqBuddy([_new_seqs[_seq_id] for _seq_id in _new_seqs], _out_format=seqs1.in_format)
     return _new_seqs
 
 
@@ -620,7 +620,7 @@ def purge(_seqs, threshold):  # ToDo: Implement a way to return a certain # of s
         _unique = True
         for _seq_id in purge_set:
             purge_seq = purge_set[_seq_id]["seq"]
-            blast_seqs = SequencePreparer([_seq, purge_seq])
+            blast_seqs = SeqBuddy([_seq, purge_seq])
             blast_res = bl2seq(blast_seqs)
             bit_score = float(blast_res.split("\t")[5])
             if bit_score >= threshold:
@@ -788,10 +788,10 @@ if __name__ == '__main__':
     seqs = []
     seq_set = ""
     for seq_set in in_args.sequence:
-        seq_set = SequencePreparer(seq_set, in_args.in_format)
+        seq_set = SeqBuddy(seq_set, in_args.in_format)
         seqs += seq_set.seqs
 
-    seqs = SequencePreparer(seqs)
+    seqs = SeqBuddy(seqs)
 
     seqs.out_format = in_args.out_format if in_args.out_format else seq_set.out_format
 
@@ -916,7 +916,7 @@ if __name__ == '__main__':
         else:
             columns = 1
 
-        new_list = SequencePreparer(list(seqs.seqs))
+        new_list = SeqBuddy(list(seqs.seqs))
         deleted_seqs = []
         for next_pattern in in_args.delete_records:
             deleted_seqs += pull_recs(copy(new_list), next_pattern).seqs
@@ -950,9 +950,9 @@ if __name__ == '__main__':
 
     # Merge
     if in_args.merge:
-        new_list = SequencePreparer([])
+        new_list = SeqBuddy([])
         for infile in in_args.sequence:
-            new_list.seqs += SequencePreparer(infile).seqs
+            new_list.seqs += SeqBuddy(infile).seqs
 
         new_list.out_format = in_args.out_format if in_args.out_format else seqs.out_format
         _print_recs(new_list)
@@ -1112,15 +1112,15 @@ if __name__ == '__main__':
     # Guess format
     if in_args.guess_format:
         for seq_set in in_args.sequence:
-            sys.stdout.write("%s\t-->\t%s\n" % (seq_set, SequencePreparer(seq_set).in_format))
+            sys.stdout.write("%s\t-->\t%s\n" % (seq_set, SeqBuddy(seq_set).in_format))
 
     # Map features from cDNA over to protein
     if in_args.map_features_dna2prot:
         in_place_allowed = True
         file1, file2 = in_args.sequence[:2]
 
-        file1 = SequencePreparer(file1)
-        file2 = SequencePreparer(file2)
+        file1 = SeqBuddy(file1)
+        file2 = SeqBuddy(file2)
 
         if file1.alpha == file2.alpha:
             sys.exit("Error: You must provide one DNA file and one protein file")
@@ -1141,8 +1141,8 @@ if __name__ == '__main__':
         in_place_allowed = True
         file1, file2 = in_args.sequence[:2]
 
-        file1 = SequencePreparer(file1)
-        file2 = SequencePreparer(file2)
+        file1 = SeqBuddy(file1)
+        file2 = SeqBuddy(file2)
 
         if file1.alpha == file2.alpha:
             sys.exit("Error: You must provide one DNA file and one protein file")
@@ -1161,7 +1161,7 @@ if __name__ == '__main__':
     # Combine feature sets from two files into one
     if in_args.combine_features:
         file1, file2 = in_args.sequence[:2]
-        file1 = SequencePreparer(file1)
-        file2 = SequencePreparer(file2)
+        file1 = SeqBuddy(file1)
+        file2 = SeqBuddy(file2)
         new_seqs = combine_features(file1, file2)
         _print_recs(new_seqs)
