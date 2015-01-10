@@ -54,40 +54,6 @@ def order_features_by_alpha():
     x = 1
 
 
-# ################################################ INTERNAL FUNCTIONS ################################################ #
-
-
-def _print_recs(_seqs):  # TODO: Remove the calls to in_args
-    if len(_seqs.seqs) == 0:
-        sys.stderr.write("Nothing returned.\n")
-        return False
-
-    if _seqs.out_format == "phylipi":
-        _output = phylipi(_seqs)
-
-    elif _seqs.out_format == "phylipis":
-        _output = phylipi(_seqs, "strict")
-
-    else:
-        tmp_dir = TemporaryDirectory()
-        with open("%s/seqs.tmp" % tmp_dir.name, "w") as ofile:
-            SeqIO.write(_seqs.seqs, ofile, _seqs.out_format)
-
-        with open("%s/seqs.tmp" % tmp_dir.name, "r") as ifile:
-            _output = ifile.read()
-
-    if in_args.in_place and in_place_allowed:
-        if not os.path.exists(in_args.sequence[0]):
-            sys.stderr.write("Warning: The -i flag was passed in, but the positional argument doesn't seem to be a "
-                             "file. Nothing was written.\n")
-            sys.stdout.write("%s\n" % _output.strip())
-        else:
-            with open(os.path.abspath(in_args.sequence[0]), "w") as ofile:
-                ofile.write(_output)
-            sys.stderr.write("File over-written at:\n%s\n" % os.path.abspath(in_args.sequence[0]))
-    else:
-        sys.stdout.write("%s\n" % _output.strip())
-
 # ################################################# HELPER FUNCTIONS ################################################# #
 
 
@@ -139,7 +105,7 @@ def guess_format(_input):  # _input can be list, SequencePreparer object, file h
     if str(type(_input)) == "<class '__main__.SequencePreparer'>":
         return _input.in_format
 
-    # If input is a handle or path, try to read the file in each format, and assume success if not error and num seqs > 0
+    # If input is a handle or path, try to read the file in each format, and assume success if not error and # seqs > 0
     if os.path.isfile(str(_input)):
         _input = open(_input, "r")
 
@@ -822,6 +788,39 @@ if __name__ == '__main__':
 
     seqs.out_format = in_args.out_format if in_args.out_format else seq_set.out_format
 
+    # ############################################# INTERNAL FUNCTION ################################################ #
+    def _print_recs(_seqs):
+        if len(_seqs.seqs) == 0:
+            sys.stderr.write("Nothing returned.\n")
+            return False
+
+        if _seqs.out_format == "phylipi":
+            _output = phylipi(_seqs)
+
+        elif _seqs.out_format == "phylipis":
+            _output = phylipi(_seqs, "strict")
+
+        else:
+            tmp_dir = TemporaryDirectory()
+            with open("%s/seqs.tmp" % tmp_dir.name, "w") as ofile:
+                SeqIO.write(_seqs.seqs, ofile, _seqs.out_format)
+
+            with open("%s/seqs.tmp" % tmp_dir.name, "r") as ifile:
+                _output = ifile.read()
+
+        if in_args.in_place and in_place_allowed:
+            if not os.path.exists(in_args.sequence[0]):
+                sys.stderr.write("Warning: The -i flag was passed in, but the positional argument doesn't seem to be a "
+                                 "file. Nothing was written.\n")
+                sys.stdout.write("%s\n" % _output.strip())
+            else:
+                with open(os.path.abspath(in_args.sequence[0]), "w") as ofile:
+                    ofile.write(_output)
+                sys.stderr.write("File over-written at:\n%s\n" % os.path.abspath(in_args.sequence[0]))
+        else:
+            sys.stdout.write("%s\n" % _output.strip())
+
+    # ############################################## COMMAND LINE LOGIC ############################################## #
     # DendroBlast
     if in_args.dendroblast:
         denroblast(seqs)
