@@ -185,29 +185,44 @@ def phylipi(_input, _format="relaxed"):  # _format in ["strict", "relaxed"]
 # #################################################################################################################### #
 
 
-def blast(_seqs, blast_db):
-    blast_program = "blastp" if _seqs.alpha == IUPAC.protein else "blastn"
+def blast(_seqs, blast_db, blast_path=None, blastdbcmd=None):  # ToDo: Allow weird binary names to work
+    if not blast_path:
+        blast_path = which("blastp") if _seqs.alpha == IUPAC.protein else which("blastn")
+
+    blast_check = Popen("%s -version" % blast_path, stdout=PIPE, shell=True).communicate()
+    blast_check = re.search("([a-z])*[^:]", blast_check[0].decode("utf-8"))
+    if blast_check:
+        blast_check = blast_check.group(0)
 
     # ToDo Check NCBI++ tools are a conducive version (2.2.29 and above, I think [maybe .28])
 
     # Check to make sure blast is in path and ensure that the blast_db is present
     blast_db = os.path.abspath(blast_db)
-    if blast_program == "blastp":
-        if not which("blastp"):
-            sys.exit("Error: blastp binary not found in your path. Specify with the -p flag")  # ToDo: implement -p flag
-        if not os.path.isfile("%s.pin" % blast_db) or not os.path.isfile("%s.phr" % blast_db) or not os.path.isfile("%s.psq" % blast_db):
-            sys.exit("Error: Your blast database was not identified at '%s'" % blast_db)
-    else:
-        if not which("blastn"):
-            sys.exit("Error: blastn binary not found in your path. Specify with the -p flag")  # ToDo: implement -p flag
-        if not os.path.isfile("%s.nin" % blast_db) or not os.path.isfile("%s.nhr" % blast_db) or not os.path.isfile("%s.nsq" % blast_db):
-            sys.exit("Error: Your blast database was not identified at '%s'" % blast_db)
+    if blast_check == "blastp":
+        if not which(blast_path):
+            raise FileNotFoundError("blastp")
 
-    if not which("blastdbcmd"):
-        sys.exit("Error: blastdbcmd binary not found in your path. Specify with the -p flag")  # ToDo: implement -p flag
+        if not os.path.isfile("%s.pin" % blast_db) or not os.path.isfile("%s.phr" % blast_db) \
+                or not os.path.isfile("%s.psq" % blast_db):
+            sys.exit("Error:\tBlastp database not found at '%s'" % blast_db)
+    elif blast_check == "blastn":
+        if not which(blast_path):
+            raise FileNotFoundError("blastn")
+
+        if not os.path.isfile("%s.nin" % blast_db) or not os.path.isfile("%s.nhr" % blast_db) \
+                or not os.path.isfile("%s.nsq" % blast_db):
+            sys.exit("Error:\tBlastn database not found at '%s'" % blast_db)
+    else:
+        sys.exit("Blast binary doesn't seem to work, at %s" % blast_path)
+
+    if not blastdbcmd:
+        blastdbcmd = "blastdbcmd"
+
+    if not which(blastdbcmd):
+        raise FileNotFoundError("blastdbcmd")
 
     # Check that blastdb was made with the -parse_seqids flag
-    extensions = ["pog", "psd", "psi"] if blast_program == "blastp" else ["nog", "nsd", "nsi"]
+    extensions = ["pog", "psd", "psi"] if blast_check == "blastp" else ["nog", "nsd", "nsi"]
     if not os.path.isfile("%s.%s" % (blast_db, extensions[0])) or not \
             os.path.isfile("%s.%s" % (blast_db, extensions[1])) or not \
             os.path.isfile("%s.%s" % (blast_db, extensions[2])):
@@ -216,9 +231,9 @@ def blast(_seqs, blast_db):
     tmp_dir = TemporaryDirectory()
     with open("%s/tmp.fa" % tmp_dir.name, "w") as ofile:
         SeqIO.write(_seqs.seqs, ofile, "fasta")
-    blast_program = "blastp" if _seqs.alpha == IUPAC.protein else "blastn"
+
     Popen("%s -db %s -query %s/tmp.fa -out %s/out.txt -num_threads 20 -evalue 0.01 -outfmt 6" %
-          (blast_program, blast_db, tmp_dir.name, tmp_dir.name), shell=True).wait()
+          (blast_path, blast_db, tmp_dir.name, tmp_dir.name), shell=True).wait()
 
     with open("%s/out.txt" % tmp_dir.name, "r") as ifile:
         blast_results = SearchIO.parse(ifile, "blast-tab")
@@ -843,6 +858,29 @@ if __name__ == '__main__':
         else:
             sys.stdout.write("%s\n" % _output.strip())
 
+    def _get_blast_binaries():
+        blastp = None
+        blastn = None
+        blastdbcmd = None
+        if in_args.params:
+            for param in in_args.params:
+                binary = Popen("%s -version" % param, stdout=PIPE, shell=True).communicate()
+                binary = re.search("([a-z])*[^:]", binary[0].decode("utf-8"))
+                binary = binary.group(0)
+                if binary == "blastp":
+                    blastp = param
+                elif binary == "blastn":
+                    blastn = param
+                elif binary == "blastdbcmd":
+                    blastdbcmd = param
+
+        blastp = blastp if blastp else which("blastp")
+        blastn = blastn if blastn else which("blastn")
+        blastdbcmd = blastdbcmd if blastdbcmd else which("blastdbcmd")
+
+        return {"blastdbcmd": blastdbcmd, "blastp": blastp, "blastn": blastn}
+
+
     # ############################################## COMMAND LINE LOGIC ############################################## #
     # DendroBlast
     if in_args.dendroblast:
@@ -867,10 +905,15 @@ if __name__ == '__main__':
 
     # BLAST
     if in_args.blast:
-        blast_path = os.path.abspath(in_args.blast)
-        if not os.path.isfile("%s.pin" % blast_path):
-            sys.stderr.write("Error: You must specify a blast database to query\n")
-        _print_recs(blast(seqs, in_args.blast))
+        blast_binaries = _get_blast_binaries()
+        blast_path = blast_binaries["blastp"] if seqs.alpha == IUPAC.protein else blast_binaries["blastn"]
+        try:
+            blast_res = blast(seqs, in_args.blast, blast_path=blast_path, blastdbcmd=blast_binaries["blastdbcmd"])
+
+        except FileNotFoundError as e:
+            sys.exit("%s binary not found, explicitly set with the -p flag.\n"
+                     "To pass in the path to both blast(p/n) and blastdbcmd, separate them with a space." % e)
+        _print_recs(blast_res)
 
     # Shuffle
     if in_args.shuffle:
