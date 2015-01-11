@@ -671,6 +671,18 @@ def bl2seq(_seqs):  # Does an all-by-all analysis, and does not return sequences
     return _output.strip()
 
 
+def uppercase(_seqs):
+    for _seq in _seqs.seqs:
+        _seq.seq = Seq(str(_seq.seq).upper(), alphabet=_seq.seq.alphabet)
+    return _seqs
+
+
+def lowercase(_seqs):
+    for _seq in _seqs.seqs:
+        _seq.seq = Seq(str(_seq.seq).lower(), alphabet=_seq.seq.alphabet)
+    return _seqs
+
+
 def denroblast(_seqs):  # This does not work yet... See Kelly and Maini, 2013, PlosONE
     blast_res = bl2seq(_seqs).split("\n")
 
@@ -722,6 +734,10 @@ if __name__ == '__main__':
     parser.add_argument('-gf', '--guess_format', action='store_true')
     parser.add_argument('-cs', '--clean_seq', action='store_true',
                         help="Strip out non-sequence characters, such as stops (*) and gaps (-)")
+    parser.add_argument('-uc', '--uppercase', action='store_true',
+                        help='Convert all sequences to uppercase')
+    parser.add_argument('-lc', '--lowercase', action='store_true',
+                        help='Convert all sequences to lowercase')
     parser.add_argument('-dm', '--delete_metadata', action='store_true',
                         help="Remove meta-data from file (only id is retained)")
     parser.add_argument('-rs', '--raw_seq', action='store_true',
@@ -973,6 +989,16 @@ if __name__ == '__main__':
         in_place_allowed = True
         seqs = rename(seqs, in_args.rename_ids[0], in_args.rename_ids[1])
         _print_recs(seqs)
+
+    # Uppercase
+    if in_args.uppercase:
+        in_place_allowed = True
+        _print_recs(uppercase(seqs))
+
+    # Uppercase
+    if in_args.lowercase:
+        in_place_allowed = True
+        _print_recs(lowercase(seqs))
 
     # Transcribe
     if in_args.transcribe:
