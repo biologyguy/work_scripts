@@ -454,22 +454,17 @@ def combine_features(seqs1, seqs2):
 
 def order_features_by_position(_seqs):
     for _seq in _seqs.seqs:
-        new_feature_list = []  # 2D list, with each item being [location, feature_obj]
+        new_feature_list = []  # 2D list, [int(start), feature_obj]
         for _feature in _seq.features:
-            feat_location = str(_feature.location)
-            feat_location = int(re.search("([\d]+)", feat_location).group(0))
-            new_feature = [feat_location, _feature]
+            loc = int(_feature.location.start)
             new_feature_index = 0
-
-            for _i in range(len(new_feature_list)):
-                if feat_location >= new_feature_list[_i][0]:
-                    new_feature_index = _i
+            for new_feat in new_feature_list:
+                if loc <= new_feat[0]:
                     break
+                new_feature_index += 1
 
-            new_feature_list.insert(new_feature_index, new_feature)
-
+            new_feature_list.insert(new_feature_index, [loc, _feature])
         _seq.features = [x[1] for x in new_feature_list]
-        _seq.features.reverse()
     return _seqs
 
 
