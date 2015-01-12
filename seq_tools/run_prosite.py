@@ -8,14 +8,15 @@ from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.Alphabet import IUPAC
 import datetime
 import seq_tools
+from copy import copy
 
 
 class Prosite():
     def __init__(self, sequence):  # Sequence is a protein SeqRecord object
         self.tmp_dir = TempDir()
         self.job_id = ""
-        sequence.seq.alphabet = IUPAC.IUPACProtein()
-        self.sequence = sequence
+        self.seqbuddy = copy(sequence)
+        self.sequence = copy(sequence.seqs[0])
         self.outfile = ""
 
     def run_prosite(self, client_path):
@@ -31,6 +32,7 @@ class Prosite():
         with open("%s/%s.out.txt" % (self.tmp_dir.path, self.sequence.id), "r") as in_file:
             self.outfile = in_file.read()
 
+        feature_list = []
         for feature in self.outfile.split(">")[1:]:
             feat_type = re.match('EMBOSS_001 : (.*)', feature)
             feat_type = feat_type.groups(0)[0].split(" ")[1]
@@ -39,9 +41,13 @@ class Prosite():
             for span in spans:
                 span = span.split(" ")
                 feature = SeqFeature(FeatureLocation(int(span[0]), int(span[2])), type=feat_type)
-                self.sequence.features.append(feature)
-
-        return self.sequence
+                feature_list.append(feature)
+        temp_seq = seq_tools.SeqBuddy([self.sequence])
+        temp_seq.seqs[0].features = feature_list
+        self.seqbuddy = seq_tools.combine_features(temp_seq, self.seqbuddy)
+        self.seqbuddy = seq_tools.order_features_by_position(self.seqbuddy)
+        self.sequence = self.seqbuddy.seqs[0]
+        return
 
     def save_prosite_file(self, out_path):
         today = datetime.date.today()
@@ -99,10 +105,11 @@ if __name__ == '__main__':
         ofile.truncate()
 
     def run_prosite(sequence):
+        sequence = seq_tools.SeqBuddy([sequence])
         prosite = Prosite(sequence)
-        sequence = prosite.run_prosite(prosite_scan_client)
+        prosite.run_prosite(prosite_scan_client)
         with lock:
             with open(gb_file, "a") as out_file:
-                SeqIO.write(sequence, out_file, "gb")
+                SeqIO.write(prosite.sequence, out_file, "gb")
 
     run_multicore_function(sequences.seqs, run_prosite)
