@@ -148,25 +148,6 @@ def guess_format(_input):  # _input can be list, SeqBuddy object, file handle, o
     else:
         sys.exit("Error: Unsupported _input argument in guess_format(). %s" % _input)
 
-"""
-    # Old file extension analysis
-    if not os.path.isfile(file_path):
-        return None
-
-    file_path = file_path.split(".")
-    if file_path[-1] in ["fa", "fas", "fasta"]:
-        return "fasta"
-    if file_path[-1] in ["gb", "gp", "genbank"]:
-        return "gb"
-    if file_path[-1] in ["nex", "nxs", "nexus"]:
-        return "nexus"
-    if file_path[-1] in ["phy", "ph", "phylip"]:
-        return "phylip-relaxed"
-    if file_path[-1] in ["sto", "pfam", "stockholm"]:
-        return "stockholm"
-    return None
-"""
-
 
 def phylipi(_input, _format="relaxed"):  # _format in ["strict", "relaxed"]
     max_id_length = 0
@@ -184,11 +165,11 @@ def phylipi(_input, _format="relaxed"):  # _format in ["strict", "relaxed"]
 # #################################################################################################################### #
 
 
-def blast(_seqs, blast_db, _blast_path=None, blastdbcmd=None):  # ToDo: Allow weird binary names to work
-    if not _blast_path:
-        _blast_path = which("blastp") if _seqs.alpha == IUPAC.protein else which("blastn")
+def blast(_seqs, blast_db, blast_path=None, blastdbcmd=None):  # ToDo: Allow weird binary names to work
+    if not blast_path:
+        blast_path = which("blastp") if _seqs.alpha == IUPAC.protein else which("blastn")
 
-    blast_check = Popen("%s -version" % _blast_path, stdout=PIPE, shell=True).communicate()
+    blast_check = Popen("%s -version" % blast_path, stdout=PIPE, shell=True).communicate()
     blast_check = re.search("([a-z])*[^:]", blast_check[0].decode("utf-8"))
     if blast_check:
         blast_check = blast_check.group(0)
@@ -198,21 +179,21 @@ def blast(_seqs, blast_db, _blast_path=None, blastdbcmd=None):  # ToDo: Allow we
     # Check to make sure blast is in path and ensure that the blast_db is present
     blast_db = os.path.abspath(blast_db)
     if blast_check == "blastp":
-        if not which(_blast_path):
+        if not which(blast_path):
             raise FileNotFoundError("blastp")
 
         if not os.path.isfile("%s.pin" % blast_db) or not os.path.isfile("%s.phr" % blast_db) \
                 or not os.path.isfile("%s.psq" % blast_db):
             sys.exit("Error:\tBlastp database not found at '%s'" % blast_db)
     elif blast_check == "blastn":
-        if not which(_blast_path):
+        if not which(blast_path):
             raise FileNotFoundError("blastn")
 
         if not os.path.isfile("%s.nin" % blast_db) or not os.path.isfile("%s.nhr" % blast_db) \
                 or not os.path.isfile("%s.nsq" % blast_db):
             sys.exit("Error:\tBlastn database not found at '%s'" % blast_db)
     else:
-        sys.exit("Blast binary doesn't seem to work, at %s" % _blast_path)
+        sys.exit("Blast binary doesn't seem to work, at %s" % blast_path)
 
     if not blastdbcmd:
         blastdbcmd = "blastdbcmd"
@@ -927,9 +908,9 @@ if __name__ == '__main__':
     # BLAST
     if in_args.blast:
         blast_binaries = _get_blast_binaries()
-        blast_path = blast_binaries["blastp"] if seqs.alpha == IUPAC.protein else blast_binaries["blastn"]
+        blast_binary_path = blast_binaries["blastp"] if seqs.alpha == IUPAC.protein else blast_binaries["blastn"]
         try:
-            blast_res = blast(seqs, in_args.blast, blast_path=blast_path, blastdbcmd=blast_binaries["blastdbcmd"])
+            blast_res = blast(seqs, in_args.blast, blast_path=blast_binary_path, blastdbcmd=blast_binaries["blastdbcmd"])
 
         except FileNotFoundError as e:
             sys.exit("%s binary not found, explicitly set with the -p flag.\n"
