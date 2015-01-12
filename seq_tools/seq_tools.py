@@ -40,18 +40,17 @@ with warnings.catch_warnings():
 # ##################################################### WISH LIST #################################################### #
 def get_genbank_file():
     x = 1
+    return x
 
 
 def run_prosite():
     x = 1
-
-
-def order_features_by_position():
-    x = 1
+    return x
 
 
 def order_features_by_alpha():
     x = 1
+    return x
 
 
 # ################################################# HELPER FUNCTIONS ################################################# #
@@ -185,11 +184,11 @@ def phylipi(_input, _format="relaxed"):  # _format in ["strict", "relaxed"]
 # #################################################################################################################### #
 
 
-def blast(_seqs, blast_db, blast_path=None, blastdbcmd=None):  # ToDo: Allow weird binary names to work
-    if not blast_path:
-        blast_path = which("blastp") if _seqs.alpha == IUPAC.protein else which("blastn")
+def blast(_seqs, blast_db, _blast_path=None, blastdbcmd=None):  # ToDo: Allow weird binary names to work
+    if not _blast_path:
+        _blast_path = which("blastp") if _seqs.alpha == IUPAC.protein else which("blastn")
 
-    blast_check = Popen("%s -version" % blast_path, stdout=PIPE, shell=True).communicate()
+    blast_check = Popen("%s -version" % _blast_path, stdout=PIPE, shell=True).communicate()
     blast_check = re.search("([a-z])*[^:]", blast_check[0].decode("utf-8"))
     if blast_check:
         blast_check = blast_check.group(0)
@@ -199,21 +198,21 @@ def blast(_seqs, blast_db, blast_path=None, blastdbcmd=None):  # ToDo: Allow wei
     # Check to make sure blast is in path and ensure that the blast_db is present
     blast_db = os.path.abspath(blast_db)
     if blast_check == "blastp":
-        if not which(blast_path):
+        if not which(_blast_path):
             raise FileNotFoundError("blastp")
 
         if not os.path.isfile("%s.pin" % blast_db) or not os.path.isfile("%s.phr" % blast_db) \
                 or not os.path.isfile("%s.psq" % blast_db):
             sys.exit("Error:\tBlastp database not found at '%s'" % blast_db)
     elif blast_check == "blastn":
-        if not which(blast_path):
+        if not which(_blast_path):
             raise FileNotFoundError("blastn")
 
         if not os.path.isfile("%s.nin" % blast_db) or not os.path.isfile("%s.nhr" % blast_db) \
                 or not os.path.isfile("%s.nsq" % blast_db):
             sys.exit("Error:\tBlastn database not found at '%s'" % blast_db)
     else:
-        sys.exit("Blast binary doesn't seem to work, at %s" % blast_path)
+        sys.exit("Blast binary doesn't seem to work, at %s" % _blast_path)
 
     if not blastdbcmd:
         blastdbcmd = "blastdbcmd"
@@ -472,6 +471,27 @@ def combine_features(seqs1, seqs2):
     return _new_seqs
 
 
+def order_features_by_position(_seqs):
+    for _seq in _seqs.seqs:
+        new_feature_list = []  # 2D list, with each item being [location, feature_obj]
+        for _feature in _seq.features:
+            feat_location = str(_feature.location)
+            feat_location = int(re.search("([\d]+)", feat_location).group(0))
+            new_feature = [feat_location, _feature]
+            new_feature_index = 0
+
+            for _i in range(len(new_feature_list)):
+                if feat_location >= new_feature_list[_i][0]:
+                    new_feature_index = _i
+                    break
+
+            new_feature_list.insert(new_feature_index, new_feature)
+
+        _seq.features = [x[1] for x in new_feature_list]
+        _seq.features.reverse()
+    return _seqs
+
+
 def hash_seqeunce_ids(_seqs):
     hash_list = []
     seq_ids = []
@@ -636,8 +656,8 @@ def purge(_seqs, threshold):  # ToDo: Implement a way to return a certain # of s
         for _seq_id in purge_set:
             purge_seq = purge_set[_seq_id]["seq"]
             blast_seqs = SeqBuddy([_seq, purge_seq])
-            blast_res = bl2seq(blast_seqs)
-            bit_score = float(blast_res.split("\t")[5])
+            _blast_res = bl2seq(blast_seqs)
+            bit_score = float(_blast_res.split("\t")[5])
             if bit_score >= threshold:
                 _unique = False
                 purge_set[_seq_id]["sim_seq"].append(_seq.id)
@@ -672,15 +692,15 @@ def bl2seq(_seqs):  # Does an all-by-all analysis, and does not return sequences
             with open(query_file, "w") as ifile:
                 SeqIO.write(query, ifile, "fasta")
 
-            blast_res = Popen("%s -subject %s -query %s -outfmt 6" %
-                              (blast_bin, subject_file, query_file), stdout=PIPE, shell=True).communicate()
-            blast_res = blast_res[0].decode().split("\n")[0].split("\t")
-            if len(blast_res) == 1:
+            _blast_res = Popen("%s -subject %s -query %s -outfmt 6" %
+                               (blast_bin, subject_file, query_file), stdout=PIPE, shell=True).communicate()
+            _blast_res = _blast_res[0].decode().split("\n")[0].split("\t")
+            if len(_blast_res) == 1:
                 _output += "%s\t%s\t0\t0\t0\t0\n" % (subject.id, query.id)
             else:
                 # values are: query, subject, %_ident, length, evalue, bit_score
-                _output += "%s\t%s\t%s\t%s\t%s\t%s\n" % (blast_res[0], blast_res[1], blast_res[2],
-                                                         blast_res[3], blast_res[10], blast_res[11].strip())
+                _output += "%s\t%s\t%s\t%s\t%s\t%s\n" % (_blast_res[0], _blast_res[1], _blast_res[2],
+                                                         _blast_res[3], _blast_res[10], _blast_res[11].strip())
 
         _seqs_copy = _seqs_copy[1:]
     return _output.strip()
@@ -699,11 +719,11 @@ def lowercase(_seqs):
 
 
 def denroblast(_seqs):  # This does not work yet... See Kelly and Maini, 2013, PlosONE
-    blast_res = bl2seq(_seqs).split("\n")
+    _blast_res = bl2seq(_seqs).split("\n")
 
     # format the data into a dictionary for easier manipulation
     dist_dict = {}
-    for pair in blast_res:
+    for pair in _blast_res:
         pair = pair.split("\t")
         if pair[0] in dist_dict:
             dist_dict[pair[0]][pair[1]] = float(pair[5])
@@ -777,6 +797,8 @@ if __name__ == '__main__':
                         help="Replace some pattern in ids with something else.")
     parser.add_argument('-cf', '--combine_features', action='store_true',
                         help="Takes the features in two files and combines them for each sequence")
+    parser.add_argument('-ofp', '--order_features_by_position', action='store_true',
+                        help="Change the output order of sequence features, based on sequence position")
     parser.add_argument('-sf', '--screw_formats', action='store', metavar="<out_format>",
                         help="Change the file format to something else.")
     parser.add_argument('-sh', '--shuffle', action='store_true',
@@ -879,7 +901,6 @@ if __name__ == '__main__':
         blastdbcmd = blastdbcmd if blastdbcmd else which("blastdbcmd")
 
         return {"blastdbcmd": blastdbcmd, "blastp": blastp, "blastn": blastn}
-
 
     # ############################################## COMMAND LINE LOGIC ############################################## #
     # DendroBlast
@@ -1038,7 +1059,7 @@ if __name__ == '__main__':
         in_place_allowed = True
         _print_recs(uppercase(seqs))
 
-    # Uppercase
+    # Lowercase
     if in_args.lowercase:
         in_place_allowed = True
         _print_recs(lowercase(seqs))
@@ -1234,3 +1255,7 @@ if __name__ == '__main__':
         file2 = SeqBuddy(file2)
         new_seqs = combine_features(file1, file2)
         _print_recs(new_seqs)
+
+    if in_args.order_features_by_position:
+        in_place_allowed = True
+        _print_recs(order_features_by_position(seqs))
