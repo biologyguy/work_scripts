@@ -449,23 +449,15 @@ def combine_features(seqs1, seqs2):
 
 def order_features_by_position(_seqs):
     for _seq in _seqs.seqs:
-        new_feature_list = []  # 2D list, [int(start), feature_obj]
-        for _feature in _seq.features:
-            loc = int(_feature.location.start)
-            new_feature_index = 0
-            for new_feat in new_feature_list:
-                if loc <= new_feat[0]:
-                    break
-                new_feature_index += 1
-
-            new_feature_list.insert(new_feature_index, [loc, _feature])
-        _seq.features = [x[1] for x in new_feature_list]
+        new_feature_list = [(int(_feature.location.start), _feature) for _feature in _seq.features]
+        new_feature_list = sorted(new_feature_list, key=lambda x: x[0])
+        new_feature_list = [_feature[1] for _feature in new_feature_list]
+        _seq.features = new_feature_list
     return _seqs
 
 
 def order_features_alphabetically(_seqs):
     for _seq in _seqs.seqs:
-        # having some fun with list comprehensions and a lambda function
         new_feature_list = [(_feature.type, _feature) for _feature in _seq.features]
         new_feature_list = sorted(new_feature_list, key=lambda x: x[0])
         new_feature_list = [_feature[1] for _feature in new_feature_list]
