@@ -48,11 +48,6 @@ def run_prosite():
     return x
 
 
-def order_features_by_alpha():
-    x = 1
-    return x
-
-
 # ################################################# HELPER FUNCTIONS ################################################# #
 
 
@@ -468,6 +463,16 @@ def order_features_by_position(_seqs):
     return _seqs
 
 
+def order_features_alphabetically(_seqs):
+    for _seq in _seqs.seqs:
+        # having some fun with list comprehensions and a lambda function
+        new_feature_list = [(_feature.type, _feature) for _feature in _seq.features]
+        new_feature_list = sorted(new_feature_list, key=lambda x: x[0])
+        new_feature_list = [_feature[1] for _feature in new_feature_list]
+        _seq.features = new_feature_list
+    return _seqs
+
+
 def hash_seqeunce_ids(_seqs):
     hash_list = []
     seq_ids = []
@@ -774,6 +779,8 @@ if __name__ == '__main__':
     parser.add_argument('-cf', '--combine_features', action='store_true',
                         help="Takes the features in two files and combines them for each sequence")
     parser.add_argument('-ofp', '--order_features_by_position', action='store_true',
+                        help="Change the output order of sequence features, based on sequence position")
+    parser.add_argument('-ofa', '--order_features_alphabetically', action='store_true',
                         help="Change the output order of sequence features, based on sequence position")
     parser.add_argument('-sf', '--screw_formats', action='store', metavar="<out_format>",
                         help="Change the file format to something else.")
@@ -1232,6 +1239,12 @@ if __name__ == '__main__':
         new_seqs = combine_features(file1, file2)
         _print_recs(new_seqs)
 
+    # Order sequence features by their position in the sequence
     if in_args.order_features_by_position:
         in_place_allowed = True
         _print_recs(order_features_by_position(seqs))
+
+    # Order sequence features alphabetically
+    if in_args.order_features_alphabetically:
+        in_place_allowed = True
+        _print_recs(order_features_alphabetically(seqs))
