@@ -48,6 +48,8 @@ def run_prosite():
     return x
 
 
+
+
 # ################################################# HELPER FUNCTIONS ################################################# #
 
 
@@ -104,8 +106,8 @@ def guess_alphabet(_seqs):  # Does not handle ambiguous dna
     percent_dna = float(_sequence.count("A") + _sequence.count("G") + _sequence.count("T") +
                         _sequence.count("C") + _sequence.count("U")) / float(len(_sequence))
     if percent_dna > 0.95:
-        nucl = IUPAC.ambiguous_rna if float(_sequence.count("U")) / float(len(_sequence)) > 0.05 else IUPAC.ambiguous_dna
-        return nucl
+        nuc = IUPAC.ambiguous_rna if float(_sequence.count("U")) / float(len(_sequence)) > 0.05 else IUPAC.ambiguous_dna
+        return nuc
     else:
         return IUPAC.protein
 
@@ -285,6 +287,46 @@ def translate_cds(_seqs):
     return _seqs
 
 
+def back_translate(_seqs, mode='random'):  # available modes --> random ToDo: Implement other modes
+    codon_table = {'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L', 'TCT': 'S',
+                   'TCC': 'S', 'TCA': 'S', 'TCG': 'S', 'TAT': 'Y', 'TAC': 'Y',
+                   'TGT': 'C', 'TGC': 'C', 'TGG': 'W', 'CTT': 'L', 'CTC': 'L',
+                   'CTA': 'L', 'CTG': 'L', 'CCT': 'P', 'CCC': 'P', 'CCA': 'P',
+                   'CCG': 'P', 'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
+                   'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R', 'ATT': 'I',
+                   'ATC': 'I', 'ATA': 'I', 'ATG': 'M', 'ACT': 'T', 'ACC': 'T',
+                   'ACA': 'T', 'ACG': 'T', 'AAT': 'N', 'AAC': 'N', 'AAA': 'K',
+                   'AAG': 'K', 'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
+                   'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V', 'GCT': 'A',
+                   'GCC': 'A', 'GCA': 'A', 'GCG': 'A', 'GAT': 'D', 'GAC': 'D',
+                   'GAA': 'E', 'GAG': 'E', 'GGT': 'G', 'GGC': 'G', 'GGA': 'G',
+                   'GGG': 'G', 'TAA': '*', 'TAG': '*', 'TGA': '*'}
+
+    aa_lookup_table = {'H': ['CAC', 'CAT'], 'T': ['ACT', 'ACG', 'ACA', 'ACC'], 'A': ['GCA', 'GCT', 'GCC', 'GCG'],
+                       'I': ['ATC', 'ATT', 'ATA'], 'V': ['GTG', 'GTT', 'GTA', 'GTC'],
+                       'L': ['CTC', 'CTG', 'TTG', 'CTA', 'CTT', 'TTA'], 'K': ['AAA', 'AAG'], 'F': ['TTT', 'TTC'],
+                       'D': ['GAC', 'GAT'], 'Y': ['TAC', 'TAT'], 'Q': ['CAA', 'CAG'],
+                       'S': ['TCT', 'TCC', 'TCG', 'TCA', 'AGT', 'AGC'], 'C': ['TGC', 'TGT'],
+                       'P': ['CCC', 'CCA', 'CCT', 'CCG'], '*': ['TAG', 'TGA', 'TAA'],
+                       'R': ['CGT', 'AGA', 'AGG', 'CGC', 'CGG', 'CGA'], 'E': ['GAG', 'GAA'],
+                       'N': ['AAT', 'AAC'], 'G': ['GGC', 'GGT', 'GGA', 'GGG'], 'W': ['TGG'], 'M': ['ATG']}
+
+    if _seqs.alpha != IUPAC.protein:
+        sys.exit("Error: The input sequence needs to be protein, not %s" % _seqs.alpha)
+
+    for _seq in _seqs.seqs:
+        dna_seq = ""
+        if mode == 'random':
+            for aa in _seq.seq:
+                dna_seq += choice(aa_lookup_table[aa])
+            _seq.seq = Seq(dna_seq, alphabet=IUPAC.ambiguous_dna)
+
+        else:
+            sys.exit("Error: Mode '%s' not implemented. Valid choices are random, blahh, blahh, or blahh" % mode)
+
+    return _seqs
+
+
 def concat_seqs(_seqs):
     _new_seq = ""
     concat_ids = []
@@ -297,7 +339,8 @@ def concat_seqs(_seqs):
         _new_seq += str(_seq.seq)
 
     concat_ids = "|".join(concat_ids)
-    _new_seq = [SeqRecord(Seq(_new_seq, alphabet=_seqs.alpha), description=concat_ids, id="concatination", features=features)]
+    _new_seq = [SeqRecord(Seq(_new_seq, alphabet=_seqs.alpha),
+                          description=concat_ids, id="concatination", features=features)]
     _seqs = SeqBuddy(_new_seq)
     _seqs.out_format = "gb"
     return _seqs
@@ -738,8 +781,6 @@ if __name__ == '__main__':
 
     parser.add_argument("sequence", help="Supply a file path or a raw sequence", nargs="+", default=sys.stdin)
 
-    parser.add_argument('-ga', '--guess_alphabet', action='store_true')
-    parser.add_argument('-gf', '--guess_format', action='store_true')
     parser.add_argument('-cs', '--clean_seq', action='store_true',
                         help="Strip out non-sequence characters, such as stops (*) and gaps (-)")
     parser.add_argument('-uc', '--uppercase', action='store_true',
@@ -752,6 +793,8 @@ if __name__ == '__main__':
                         help="Return line break separated sequences")
     parser.add_argument('-tr', '--translate', action='store_true',
                         help="Convert coding sequences into amino acid sequences")
+    parser.add_argument('-btr', '--back_translate', action='store_true',
+                        help="Convert amino acid sequences into codons. Select mode with -p flag ['random', <others>]")
     parser.add_argument('-d2r', '--transcribe', action='store_true',
                         help="Convert DNA sequences to RNA")
     parser.add_argument('-r2d', '--back_transcribe', action='store_true',
@@ -780,7 +823,7 @@ if __name__ == '__main__':
                         help="Randomly reorder the position of records in the file.")
     parser.add_argument('-hsi', '--hash_seq_ids', action='store_true',
                         help="Rename all the identifiers in a sequence list to a 10 character hash.")
-    parser.add_argument('-pr', '--pull_records', action='store',
+    parser.add_argument('-pr', '--pull_records', action='store', metavar="<Regular expression>",
                         help="Get all the records with ids containing a given string")
     parser.add_argument('-pe', '--pull_record_ends', action='store', nargs=2, metavar="<amount (int)> <front|rear>",
                         help="Get the ends (front or rear) of all sequences in a file.")
@@ -797,11 +840,13 @@ if __name__ == '__main__':
     parser.add_argument("-bl", "--blast", metavar="BLAST database", action="store",
                         help="BLAST your sequence file using common settings, return the hits from blastdb")
     parser.add_argument("-bl2s", "--bl2seq", action="store_true",
-                        help="All-by-all blast amoung sequences using bl2seq. Returns only the top hit from each search.")
+                        help="All-by-all blast among sequences using bl2seq. Only Returns top hit from each search.")
     parser.add_argument("-prg", "--purge", metavar="Max BLAST score", type=int, action="store",
                         help="Delete sequences with high similarity")
     parser.add_argument("-drb", "--dendroblast", action="store_true",
                         help="Create a dendrogram from pairwise blast bit-scores. Returns newick format.")
+    parser.add_argument('-ga', '--guess_alphabet', action='store_true')
+    parser.add_argument('-gf', '--guess_format', action='store_true')
 
     parser.add_argument("-i", "--in_place", help="Rewrite the input file in-place. Be careful!", action='store_true')
     parser.add_argument('-p', '--params', help="Free form arguments for some functions", nargs="+", action='store')
@@ -904,7 +949,8 @@ if __name__ == '__main__':
         blast_binaries = _get_blast_binaries()
         blast_binary_path = blast_binaries["blastp"] if seqs.alpha == IUPAC.protein else blast_binaries["blastn"]
         try:
-            blast_res = blast(seqs, in_args.blast, blast_path=blast_binary_path, blastdbcmd=blast_binaries["blastdbcmd"])
+            blast_res = blast(seqs, in_args.blast, blast_path=blast_binary_path,
+                              blastdbcmd=blast_binaries["blastdbcmd"])
 
         except FileNotFoundError as e:
             sys.exit("%s binary not found, explicitly set with the -p flag.\n"
@@ -1076,6 +1122,12 @@ if __name__ == '__main__':
         if seqs.alpha == IUPAC.protein:
             sys.exit("Error: you need to supply DNA or RNA sequences to translate")
         _print_recs(translate_cds(seqs))
+
+    # Back translate CDS
+    if in_args.back_translate:
+        in_place_allowed = True
+        mode = in_args.params if in_args.params else 'random'
+        _print_recs(back_translate(seqs, mode))
 
     # Concatenate sequences
     if in_args.concat_seqs:
