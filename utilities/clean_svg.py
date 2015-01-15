@@ -28,6 +28,13 @@ content = re.sub(" ?font-family:.*?;", "", content)
 content = re.sub("Œ±", "α", content)
 content = re.sub("Œ≤", "β", content)
 content = re.sub("Œ≥", "γ", content)
+content = re.sub("Œ∂", "ζ", content)
+content = re.sub("Œµ", "ε", content)
+content = re.sub("Œ∏", "θ", content)
+content = re.sub("Œ∑", "η", content)
+content = re.sub("Œ¥", "δ", content)
+content = re.sub("Œª", "λ", content)
+
 
 if in_args.in_place:
     with open(in_file, "w") as ofile:
