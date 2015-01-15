@@ -48,6 +48,19 @@ def run_prosite():
     return x
 
 
+def reverse_complement():
+    x = 1
+    return x
+
+
+def complement():
+    x = 1
+    return x
+
+
+def extract_range():
+    x = 1
+    return x
 
 
 # ################################################# HELPER FUNCTIONS ################################################# #
@@ -287,7 +300,33 @@ def translate_cds(_seqs):
     return _seqs
 
 
-def back_translate(_seqs, mode='random'):  # available modes --> random ToDo: Implement other modes
+def translate6frames(_seqs):
+    _output = []
+    for _seq in _seqs.seqs:
+        for i in range(3):
+            x = len(str(_seq.seq)) if len(str(_seq.seq)) % 3 * (-1) == 0 else len(str(_seq.seq)) % 3 * (-1)
+            temp_seq = str(_seq.seq)[:x]
+            temp_seq = Seq(temp_seq, alphabet=_seq.seq.alphabet)
+            temp_seq = Seq(str(temp_seq.translate()), alphabet=IUPAC.protein)
+            _output.append(SeqRecord(temp_seq, description="", id="%s_%s" % (_seq.id, i + 1),
+                                     name="%s" % _seq.name))
+            _seq.seq = Seq(str(_seq.seq)[1:], alphabet=_seq.seq.alphabet)
+
+        revcomp = _seq.seq.reverse_complement()
+        for i in range(3):
+            x = len(str(revcomp)) if len(str(revcomp)) % 3 * (-1) == 0 else len(str(revcomp)) % 3 * (-1)
+            temp_seq = str(revcomp)[:x]
+            temp_seq = Seq(temp_seq, alphabet=revcomp.alphabet)
+            temp_seq = Seq(str(temp_seq.translate()), alphabet=IUPAC.protein)
+            _output.append(SeqRecord(temp_seq, description="", id="%s_revcomp_%s" % (_seq.id, i + 1),
+                                     name="%s" % _seq.name))
+            revcomp = Seq(str(revcomp)[1:], alphabet=revcomp.alphabet)
+
+    _seqs = SeqBuddy(_output, _out_format="fasta")
+    return _seqs
+
+
+def back_translate(_seqs, _mode='random'):  # available modes --> random ToDo: Implement other modes
     codon_table = {'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L', 'TCT': 'S',
                    'TCC': 'S', 'TCA': 'S', 'TCG': 'S', 'TAT': 'Y', 'TAC': 'Y',
                    'TGT': 'C', 'TGC': 'C', 'TGG': 'W', 'CTT': 'L', 'CTC': 'L',
@@ -316,13 +355,13 @@ def back_translate(_seqs, mode='random'):  # available modes --> random ToDo: Im
 
     for _seq in _seqs.seqs:
         dna_seq = ""
-        if mode == 'random':
+        if _mode == 'random':
             for aa in _seq.seq:
                 dna_seq += choice(aa_lookup_table[aa])
             _seq.seq = Seq(dna_seq, alphabet=IUPAC.ambiguous_dna)
 
         else:
-            sys.exit("Error: Mode '%s' not implemented. Valid choices are random, blahh, blahh, or blahh" % mode)
+            sys.exit("Error: Mode '%s' not implemented. Valid choices are random, blahh, blahh, or blahh" % _mode)
 
     return _seqs
 
@@ -694,7 +733,7 @@ def bl2seq(_seqs):  # Does an all-by-all analysis, and does not return sequences
     blast_bin = "blastp" if _seqs.alpha == IUPAC.protein else "blastn"
     if not which(blast_bin):
         sys.exit("Error: %s not present in $PATH.")  # ToDo: Implement -p flag
-
+    print(blast_bin)
     tmp_dir = TemporaryDirectory()
     _seqs_copy = _seqs.seqs[1:]
     subject_file = "%s/subject.fa" % tmp_dir.name
@@ -793,6 +832,8 @@ if __name__ == '__main__':
                         help="Return line break separated sequences")
     parser.add_argument('-tr', '--translate', action='store_true',
                         help="Convert coding sequences into amino acid sequences")
+    parser.add_argument('-tr6', '--translate6frames', action='store_true',
+                        help="Translate nucleotide sequences into all six reading frames")
     parser.add_argument('-btr', '--back_translate', action='store_true',
                         help="Convert amino acid sequences into codons. Select mode with -p flag ['random', <others>]")
     parser.add_argument('-d2r', '--transcribe', action='store_true',
@@ -1122,6 +1163,18 @@ if __name__ == '__main__':
         if seqs.alpha == IUPAC.protein:
             sys.exit("Error: you need to supply DNA or RNA sequences to translate")
         _print_recs(translate_cds(seqs))
+
+    # Translate 6 reading frames
+    if in_args.translate6frames:
+        in_place_allowed = True
+        if seqs.alpha == IUPAC.protein:
+            sys.exit("Error: you need to supply DNA or RNA sequences to translate")
+
+        seqs = translate6frames(seqs)
+        if in_args.out_format:
+            seqs.out_format = in_args.out_format
+
+        _print_recs(seqs)
 
     # Back translate CDS
     if in_args.back_translate:
