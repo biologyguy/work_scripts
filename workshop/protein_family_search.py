@@ -20,8 +20,8 @@ parser = argparse.ArgumentParser(prog="protein_family_search",
 parser.add_argument('reference_sequences', help='Provide a fasta file containing a collection of homologous sequences '
                                                 'you want to use as a reference to pull out more sequences from the '
                                                 'complete protein databases')
-parser.add_argument('blastp_database', help='Path to directory with blastp databases. The databases need to be named as '
-                                            'genus_species.')
+parser.add_argument('blastp_database', help='Path to directory with blastp databases. The databases need to be named as'
+                                            ' genus_species.')
 parser.add_argument('original_fasta_file', help='path to directory with fasta files used to create the blastp '
                                                 'databases. The genus and species names must be at the front of the '
                                                 'file name, separated by an underscore (_).')    
@@ -84,7 +84,7 @@ def perform_blast(blast_params):  # blast_params is dict [orig_prot_db_fasta, bl
             hsps = next_alignment.hsps[0]
         
             # skip result if it's a small match
-            if hsps.query < 100:
+            if len(hsps.query) < 100:
                 continue
             
             if title_info[1] in unique_idents_array:
