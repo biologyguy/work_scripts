@@ -6,7 +6,7 @@
 Wraps a local install of the Octopus transmembrane prediction program (octopus.cbr.su.se).
 Input is a sequence file (Biopython compliant), and each predicted TMD is appended to the seq feature list for printing
 """
-from os import makedirs, walk
+from os import makedirs
 from os.path import abspath
 import re
 from Bio.Seq import Seq
@@ -23,14 +23,14 @@ from copy import copy
 class AnnoTMD():
     """Takes a Bio.SeqRecord and runs octopus to find/annotate TMDs"""
     def __init__(self, sequence, blastdb, debug=False):
-        alpha_guess = SeqBuddy.guess_alphabet(SeqBuddy.SeqBuddy([sequence]))
-        sequence.seq.alphabet = IUPAC.unambiguous_dna if alpha_guess == "nucl" \
-            else IUPAC.protein
+        sb = SeqBuddy.SeqBuddy([sequence])
 
-        if alpha_guess == "nucl":
+        sequence.seq.alphabet = sb.alpha
+
+        if sb.alpha != IUPAC.protein:
             dna_seq = copy(sequence)
-            prot_seq = Seq(re.sub("\*", "", sequence.seq.translate()), alphabet=IUPAC.protein)
-            sequence = SeqRecord(prot_seq, id=sequence.id)
+            prot_seq = Seq(re.sub("\*", "", str(sequence.seq.translate())), alphabet=IUPAC.protein)
+            sequence = SeqRecord(prot_seq, id=sequence.id, name=sequence.name, description=sequence.description)
         else:
             dna_seq = None
 
