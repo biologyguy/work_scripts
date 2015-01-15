@@ -15,7 +15,7 @@ from Bio.Alphabet import IUPAC
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
 from MyFuncs import TempDir, run_multicore_function, walklevel
-import seq_tools
+import SeqBuddy
 from subprocess import Popen
 from copy import copy
 
@@ -23,7 +23,7 @@ from copy import copy
 class AnnoTMD():
     """Takes a Bio.SeqRecord and runs octopus to find/annotate TMDs"""
     def __init__(self, sequence, blastdb, debug=False):
-        alpha_guess = seq_tools.guess_alphabet(seq_tools.SeqBuddy([sequence]))
+        alpha_guess = SeqBuddy.guess_alphabet(SeqBuddy.SeqBuddy([sequence]))
         sequence.seq.alphabet = IUPAC.unambiguous_dna if alpha_guess == "nucl" \
             else IUPAC.protein
 
@@ -100,7 +100,7 @@ if __name__ == '__main__':
         tmds = AnnoTMD(seq_rec, in_args.blastdb)
         tmds.save("%s/%s.gb" % (_temp_dir, seq_rec.id))
 
-    seqs = seq_tools.SeqBuddy(in_args.in_file)
+    seqs = SeqBuddy.SeqBuddy(in_args.in_file)
     temp_dir = TempDir()
     run_multicore_function(seqs.seqs, get_tmds, [temp_dir.path])
 

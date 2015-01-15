@@ -10,7 +10,7 @@ from multiprocessing import Lock
 from Bio import SearchIO
 from Bio import SeqIO
 from Bio.Seq import Seq
-from seq_tools import blast, SeqBuddy, guess_alphabet, rename
+from SeqBuddy import blast, SeqBuddy, guess_alphabet, rename
 
 
 class SeqTools():

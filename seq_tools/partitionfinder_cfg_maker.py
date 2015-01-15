@@ -18,7 +18,7 @@ import re
 from subprocess import Popen
 from time import clock
 import MyFuncs
-import seq_tools
+import SeqBuddy
 import shutil
 # from workshop.alignBuddy import screw_formats_align
 
@@ -223,7 +223,7 @@ for block in blocks:
     if not os.path.exists(new_dir):
         os.mkdir(new_dir)
 
-    seqs = seq_tools.SeqBuddy(path)
+    seqs = SeqBuddy.SeqBuddy(path)
     phylip = open("%s/%s.phy" % (new_dir, file_name), "w")
     hashed_phylip = open("%s/%s_hashed.phy" % (new_dir, file_name), "w")
     hash_map = open("%s/%s_hash_map.csv" % (new_dir, file_name), "w")
@@ -231,7 +231,7 @@ for block in blocks:
     clean_alignment = screw_formats_align(seqs.seqs, "phylipi")
     phylip.write(clean_alignment)
 
-    id_hashes = seq_tools.hash_seqeunce_ids(seqs)
+    id_hashes = SeqBuddy.hash_seqeunce_ids(seqs)
     for i in id_hashes[0]:
         hash_map.write("%s,%s\n" % (i[0], i[1]))
 
@@ -247,7 +247,7 @@ for block in blocks:
     if seq_ranges[-1] == "":
         seq_ranges = seq_ranges[:-1]
 
-    alphabet = seq_tools.guess_alphabet(seqs)
+    alphabet = SeqBuddy.guess_alphabet(seqs)
     make_cfg(new_dir, seq_ranges, file_name)
     if in_args.run_partfinder:
         os.chdir(new_dir)

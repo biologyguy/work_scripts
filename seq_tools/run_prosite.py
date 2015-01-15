@@ -7,7 +7,7 @@ import re
 from Bio.SeqFeature import SeqFeature, FeatureLocation
 from Bio.Alphabet import IUPAC
 import datetime
-import seq_tools
+import SeqBuddy
 from copy import copy
 
 
@@ -42,10 +42,10 @@ class Prosite():
                 span = span.split(" ")
                 feature = SeqFeature(FeatureLocation(int(span[0]), int(span[2])), type=feat_type)
                 feature_list.append(feature)
-        temp_seq = seq_tools.SeqBuddy([self.sequence])
+        temp_seq = SeqBuddy.SeqBuddy([self.sequence])
         temp_seq.seqs[0].features = feature_list
-        self.seqbuddy = seq_tools.combine_features(temp_seq, self.seqbuddy)
-        self.seqbuddy = seq_tools.order_features_by_position(self.seqbuddy)
+        self.seqbuddy = SeqBuddy.combine_features(temp_seq, self.seqbuddy)
+        self.seqbuddy = SeqBuddy.order_features_by_position(self.seqbuddy)
         self.sequence = self.seqbuddy.seqs[0]
         return
 
@@ -96,7 +96,7 @@ if __name__ == '__main__':
 
     in_args = parser.parse_args()
 
-    sequences = seq_tools.SeqBuddy(in_args.in_file)
+    sequences = SeqBuddy.SeqBuddy(in_args.in_file)
     gb_file = os.path.abspath(in_args.gb_file)
     prosite_scan_client = in_args.prosite_client  # "/Users/bondsr/Documents/public_scripts/ps_scan_py3.py"
 
@@ -105,7 +105,7 @@ if __name__ == '__main__':
         ofile.truncate()
 
     def run_prosite(sequence):
-        sequence = seq_tools.SeqBuddy([sequence])
+        sequence = SeqBuddy.SeqBuddy([sequence])
         prosite = Prosite(sequence)
         prosite.run_prosite(prosite_scan_client)
         with lock:
