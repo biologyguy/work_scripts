@@ -5,7 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 import argparse
 import os
-from sys import stdout
+from sys import stdout, exit
 
 parser = argparse.ArgumentParser(prog="ensembl_scraper",
                                  description="Search EnsemblMetazoa for a all genes returned from a search")
@@ -21,15 +21,17 @@ url = "http://metazoa.ensembl.org/Multi/Search/Results?q=%s;species=all;collecti
 content = requests.get(url).text
 
 soup = BeautifulSoup(content)
-paginate = soup.find('div', {"class": 'paginate'}).find_all('a')
-
-max_page = 1
-for page in paginate:
-    try:
-        if int(page.text) > max_page:
-            max_page = int(page.text)
-    except ValueError:
-        continue
+try:
+    paginate = soup.find('div', {"class": 'paginate'}).find_all('a')
+    max_page = 1
+    for page in paginate:
+        try:
+            if int(page.text) > max_page:
+                max_page = int(page.text)
+        except ValueError:
+            continue
+except AttributeError:
+    max_page = 1
 
 print("%s pages of results were returned" % max_page)
 ids = {}
@@ -56,6 +58,9 @@ for page_num in range(max_page):
                 ids[rhs].append(gene_id)
             else:
                 ids[rhs] = [gene_id]
+
+if len(ids) == 0:
+    exit("\rNo records found for query '%s'" % in_args.search_term)
 
 output = ""
 for species in ids:
