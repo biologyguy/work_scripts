@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Created on: Oct 24 2014 
 
@@ -20,8 +20,7 @@ info_file = os.path.abspath(in_args.info_file)
 with open(info_file, "r") as ifile:
     content = ifile.read()
 
-inferences = re.search("(Inference\[0\] final.*)", content, flags=re.DOTALL)
-inferences = inferences.group(0).split("\n")
+inferences = re.findall("Inference\[[0-9]*\] final.*", content)
 
 best_score = -9999999999999
 best_index = 0
