@@ -16,7 +16,7 @@ class Prosite():
         self.tmp_dir = TempDir()
         self.job_id = ""
         self.seqbuddy = copy(sequence)
-        self.sequence = copy(sequence.seqs[0])
+        self.sequence = copy(sequence.records[0])
         self.outfile = ""
 
     def run_prosite(self, client_path):
@@ -43,10 +43,10 @@ class Prosite():
                 feature = SeqFeature(FeatureLocation(int(span[0]), int(span[2])), type=feat_type)
                 feature_list.append(feature)
         temp_seq = SeqBuddy.SeqBuddy([self.sequence])
-        temp_seq.seqs[0].features = feature_list
+        temp_seq.records[0].features = feature_list
         self.seqbuddy = SeqBuddy.combine_features(temp_seq, self.seqbuddy)
         self.seqbuddy = SeqBuddy.order_features_by_position(self.seqbuddy)
-        self.sequence = self.seqbuddy.seqs[0]
+        self.sequence = self.seqbuddy.records[0]
         return
 
     def save_prosite_file(self, out_path):
@@ -112,4 +112,4 @@ if __name__ == '__main__':
             with open(gb_file, "a") as out_file:
                 SeqIO.write(prosite.sequence, out_file, "gb")
 
-    run_multicore_function(sequences.seqs, run_prosite)
+    run_multicore_function(sequences.records, run_prosite)
