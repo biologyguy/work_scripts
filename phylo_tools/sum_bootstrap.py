@@ -7,7 +7,7 @@ Silly little script to get some data on the bootstrap score of a tree
 """
 
 import re
-import sys
+import numpy
 import argparse
 
 parser = argparse.ArgumentParser(prog="sum_bootstrap", description="Add up all the bootstrap scores in a tree file",
@@ -23,20 +23,18 @@ with open(in_args.newick_file, "r") as ifile:
 
 # this is for 'raw' newick, as output by RAxML
 bootstraps = re.finditer("\)([0-9]{1,3}):", content)
-boot_sum = 0
-counter = 0
+boot_vals = []
 for boot in bootstraps:
-    boot_sum += int(boot.group(1))
-    counter += 1
+    boot_vals.append(int(boot.group(1)))
 
 # If the newick has been modified by FigTree...
-if counter == 0:
+if len(boot_vals) == 0:
     bootstraps = re.finditer("bootstrap[s]*=([0-9]{1,3})", content)
     for boot in bootstraps:
-        boot_sum += int(boot.group(1))
-        counter += 1
+        boot_vals.append(int(boot.group(1)))
 
-if counter == 0:
+if len(boot_vals) == 0:
     print("Unable to find the bootstrap values in your file.")
 else:
-    print("Sum:\t%s\nAve:\t%s" % (boot_sum, round(boot_sum / float(counter), 2)))
+    print("Sum:\t%s\nAve:\t%s\nMedian:\t%s" %
+          (sum(boot_vals), round(sum(boot_vals) / float(len(boot_vals)), 2), numpy.median(boot_vals)))
