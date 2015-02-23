@@ -63,7 +63,7 @@ if not in_args.no_docstrings:
     output += '"""\nDESCRIPTION OF PROGRAM\n"""\n\n'
 
 if not in_args.no_import:
-    output += "import sys\nimport os\nimport re\nimport shutil\nimport MyFuncs\nimport seq_tools\n"
+    output += "import sys\nimport os\nimport re\nimport shutil\nimport MyFuncs\nimport SeqBuddy\n"
 
 if in_args.time:
     output += "import timeit\n"

@@ -102,7 +102,7 @@ if __name__ == '__main__':
 
     seqs = SeqBuddy.SeqBuddy(in_args.in_file)
     temp_dir = TempDir()
-    run_multicore_function(seqs.seqs, get_tmds, [temp_dir.path])
+    run_multicore_function(seqs.records, get_tmds, [temp_dir.path])
 
     outfile = open(in_args.out_file, "w")
 
