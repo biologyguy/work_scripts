@@ -44,9 +44,10 @@ if __name__ == '__main__':
     output = []
     while in_args.depth > 0 and len(history_list) > 0:
         line = history_list.pop()
-        if re.search(in_args.regex, line):
+        command = re.sub(": [JFMASOND][a-z]{2}/[0-3][0-9]/[0-9]{2} [0-9]{2}:[0-9]{2}; ", "", line)
+        if re.search(in_args.regex, command):
             output.append(line)
             in_args.depth -= 1
 
     output.reverse()
-    print("".join(output).strip())
+    print("".join(output).strip() if output else "No history found for that search")

@@ -25,7 +25,7 @@ command = " ".join(sys.argv[2:])
 command = sub(": [JFMASOND][a-z]{2}/[0-3][0-9]/[0-9]{2} [0-9]{2}:[0-9]{2}; ", "", command)
 
 # I don't want .history filling up with useless crap, so skip these common 'look' commands
-skip_commands = ["^ls .*", "^hs .*", "^cat .*", "^head .*", "^tail .*"]
+skip_commands = ["^ls *.*", "^hs *.*", "^cat *.*", "^head *.*", "^tail *.*"]
 
 for skip in skip_commands:
     if search(skip, command):
