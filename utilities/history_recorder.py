@@ -13,8 +13,6 @@ Also, add a sim link to history_recorder.py called *hist* somewhere in PATH.
     $: ln -s /path/to/history_recorder.py /usr/local/bin/hist
 """
 
-
-
 import sys
 import time
 from re import search, sub
@@ -38,4 +36,4 @@ output = ": %s; %s" % (date, command)
 current_file = "bash_history-%s" % time.strftime("%Y%m")
 
 with open("/Volumes/Zippy/.history/%s" % current_file, "a") as ofile:
-    ofile.write(bytes("%s\n" % output))
+    ofile.write("%s\n" % output)
