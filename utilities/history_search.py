@@ -10,25 +10,17 @@ import os
 import sys
 import re
 import argparse
-import MyFuncs
-
-parser = argparse.ArgumentParser(prog="history", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
-parser.add_argument("regex", help="Pattern to search for in history", action="store", nargs='?', default=".*")
-parser.add_argument("depth", help="Number of matches to return", action="store", nargs='?', type=int, default=10)
-parser.add_argument("-d", "--date", help="Specify a specific history file", action="store")
-parser.add_argument("-ld", "--list_dates", help="List the available history files", action="store_true")
-
-in_args = parser.parse_args()
-
-
-def def2():
-    """DESCRIPTION OF FUNC"""
-    x = 1
-    return x
-
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(prog="history", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument("regex", help="Pattern to search for in history", action="store", nargs='?', default=".*")
+    parser.add_argument("depth", help="Number of matches to return", action="store", nargs='?', type=int, default=10)
+    parser.add_argument("-d", "--date", help="Specify a specific history file", action="store")
+    parser.add_argument("-ld", "--list_dates", help="List the available history files", action="store_true")
+
+    in_args = parser.parse_args()
+
     root, dirs, hist_files = next(os.walk("/Volumes/Zippy/.history/"))
 
     if in_args.list_dates:
@@ -44,7 +36,6 @@ if __name__ == '__main__':
 
     hist_files.sort()
 
-    valve = MyFuncs.SafetyValve()
     history_list = []
     for _file in hist_files:
         with open("%s/%s" % (root, _file), "r") as ifile:
@@ -56,7 +47,6 @@ if __name__ == '__main__':
         if re.search(in_args.regex, line):
             output.append(line)
             in_args.depth -= 1
-        valve.test(line)
 
     output.reverse()
     print("".join(output).strip())
