@@ -34,6 +34,7 @@ content = re.sub("Œ∏", "θ", content)
 content = re.sub("Œ∑", "η", content)
 content = re.sub("Œ¥", "δ", content)
 content = re.sub("Œª", "λ", content)
+content = re.sub("œà", "ψ", content)
 
 
 if in_args.in_place:
