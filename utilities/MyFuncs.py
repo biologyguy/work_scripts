@@ -239,17 +239,18 @@ class SafetyValve():  # Use this class if you're afraid of an infinit loop
             exit("Error: You just popped your global_reps safety valve. %s" % message)
     
     def test(self, state, message=""):  # test() keeps track of some variable 'state' to see if its value keeps changing
-        if self.state == "%s" % state:
+        if self.state == str(state):
             self.state_reps -= 1
         else:
             self.state_reps = self._start_state_reps
-            self.state = "%s" % state
+            self.state = str(state)
             
         if self.state_reps == 0:
             exit("Error: You just popped your state_reps safety valve. %s" % message)
 
 
 # Pulled this function off of Stack Overflow -- posted by nosklo
+# Note that this is a generator, so need to use next() or `with` to get a result
 def walklevel(some_dir, level=1):
     some_dir = some_dir.rstrip(os.path.sep)
     assert os.path.isdir(some_dir)
