@@ -11,20 +11,21 @@ from shutil import copytree, rmtree
 
 # maybe use curses library in the future to extend this for multi-line printing
 class DynamicPrint():
-    def __init__(self):
+    def __init__(self, out_type=stdout):
         self._last_print = ""
         self._next_print = ""
         self._writer = self._write()
+        self.out_type = out_type
 
     def _write(self):
         try:
             while True:
-                stdout.write("\r%s\r%s" % (" " * len(self._last_print), self._next_print),)
-                stdout.flush()
+                self.out_type.write("\r%s\r%s" % (" " * len(self._last_print), self._next_print),)
+                self.out_type.flush()
                 self._last_print = self._next_print
                 yield
         finally:
-            stdout.write("\n")
+            self.out_type.write("")
 
     def write(self, content):
         self._next_print = content
@@ -56,10 +57,10 @@ def pretty_time(seconds):
     return output
 
 
-def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False):
+def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False, out_type=stdout):
         # fun little piece of abstraction here... directly pass in a function that is going to be looped over, and
         # fork those loops onto independent processes. Any arguments the function needs must be provided as a list.
-        d_print = DynamicPrint()
+        d_print = DynamicPrint(out_type)
         cpus = cpu_count()
         if max_processes == 0:
             if cpus > 7:
@@ -80,7 +81,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
         elapsed = 0
         counter = 0
         if not quiet:
-            print("Running function %s() on %s cores" % (function.__name__, max_processes))
+            d_print.write("Running function %s() on %s cores\n" % (function.__name__, max_processes))
         # fire up the multi-core!!
         if not quiet:
             d_print.write("\tJob 0 of %s" % len(iterable))
@@ -144,9 +145,9 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                                                                                len(child_list)))
             
         if not quiet:
-            print(" --> DONE\n")
+            print(" --> DONE\n")  # For some reason, using d_print.write() doesn't always clear the previous line here.
         # func_args = []  # This may be necessary because of weirdness in assignment of incoming arguments
-        return        
+        return
 
 
 class TempDir():
