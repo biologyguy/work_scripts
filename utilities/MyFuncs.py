@@ -2,11 +2,12 @@
 
 from multiprocessing import Process, cpu_count
 from sys import stdout, exit, stderr
-from time import clock
+from time import time
 from math import floor
 import os
 from tempfile import TemporaryDirectory
 from shutil import copytree, rmtree
+from re import sub
 
 
 # maybe use curses library in the future to extend this for multi-line printing
@@ -28,6 +29,7 @@ class DynamicPrint():
             self.out_type.write("")
 
     def write(self, content):
+        content = sub("\t", "    ", content)
         self._next_print = content
         next(self._writer)
 
@@ -77,7 +79,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
 
         running_processes = 0
         child_list = []
-        start_time = round(clock())
+        start_time = round(time())
         elapsed = 0
         counter = 0
         if not quiet:
@@ -118,9 +120,10 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                                 child_list.pop(i)
                                 running_processes -= 1
                                 break
-                        if (start_time + elapsed) < round(clock()):
-                            elapsed = round(clock()) - start_time
-                            if not quiet:
+
+                        if not quiet:
+                            if (start_time + elapsed) < round(time()):
+                                elapsed = round(time()) - start_time
                                 d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
 
                         if running_processes < max_processes:
@@ -138,14 +141,15 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                     child_list.pop(i)
                     running_processes -= 1
                     break  # need to break out of the for-loop, because the child_list index is changed by pop
-            if (start_time + elapsed) < round(clock()):
-                elapsed = round(clock()) - start_time
-                if not quiet:
+
+            if not quiet:
+                if (start_time + elapsed) < round(time()):
+                    elapsed = round(time()) - start_time
                     d_print.write("\t%s total jobs (%s, %s jobs remaining)" % (len(iterable), pretty_time(elapsed),
                                                                                len(child_list)))
             
         if not quiet:
-            print(" --> DONE\n")  # For some reason, using d_print.write() doesn't always clear the previous line here.
+            d_print.write("\tDONE: %s jobs in %s\n" % (len(iterable), pretty_time(elapsed)))
         # func_args = []  # This may be necessary because of weirdness in assignment of incoming arguments
         return
 
