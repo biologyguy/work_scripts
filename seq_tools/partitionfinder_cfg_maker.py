@@ -273,9 +273,11 @@ for block in blocks:
 
         with open("./RAxML/RAxML.sh", "w") as ofile:
             model = "PROTGAMMAGTR" if alphabet == IUPAC.protein else "GTRGAMMA"
-            sh_output = "/usr/lib64/openmpi/1.4-gcc/bin/mpirun -np 20 /home/kochbj/bin/bin/raxmlHPC-MPI " \
-                        "-s !!!1!!!/%s/%s.phy -n %s -m %s -f d -p 12345 -N 20 -w !!!1!!!/%s/ML_trees/ " \
-                        "-q !!!1!!!/%s/partition.txt;\n" % (file_name, file_name, file_name, model, file_name, file_name)
+            sh_output = "source /home/bondsr/.bashrc;\n"
+
+            sh_output += "/usr/lib64/openmpi/1.4-gcc/bin/mpirun -np 20 /home/kochbj/bin/bin/raxmlHPC-MPI " \
+                         "-s !!!1!!!/%s/%s.phy -n %s -m %s -f d -p 12345 -N 20 -w !!!1!!!/%s/ML_trees/ " \
+                         "-q !!!1!!!/%s/partition.txt;\n" % (file_name, file_name, file_name, model, file_name, file_name)
 
             sh_output += "/usr/lib64/openmpi/1.4-gcc/bin/mpirun -np 20 /home/kochbj/bin/bin/raxmlHPC-MPI " \
                          "-s !!!1!!!/%s/%s.phy -n %s -m %s -f d -p 12345 -b 12345 -N 100 " \
