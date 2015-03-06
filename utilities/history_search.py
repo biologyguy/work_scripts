@@ -44,7 +44,7 @@ if __name__ == '__main__':
     output = []
     while in_args.depth > 0 and len(history_list) > 0:
         line = history_list.pop()
-        command = re.sub(": [JFMASOND][a-z]{2}/[0-3][0-9]/[0-9]{2} [0-9]{2}:[0-9]{2}; ", "", line)
+        command = re.sub(":[0-9]* [JFMASOND][a-z]{2}/[0-3][0-9]/[0-9]{2} [0-9]{2}:[0-9]{2}; ", "", line)
         if re.search(in_args.regex, command):
             output.append(line)
             in_args.depth -= 1
