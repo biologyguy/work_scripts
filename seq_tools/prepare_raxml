@@ -66,11 +66,12 @@ os.mkdir("./ML_trees")
 with open("./RAxML.sh", "w") as ofile:
     model = "PROTGAMMAAUTO" if seqs.alpha == IUPAC.protein else "GTRAUTO"
     sh_output = "source /home/bondsr/.bashrc;\n"
-    sh_output += "%s -np 20 %s -s %s/%s.phy -n %s -m %s -f d -p 12345 -N 20 -w %s/ML_trees/ " \
-                ";\n" % (which("mpirun"), which("raxmlHPC-MPI-SSE3"), outdir, file_name, file_name, model, outdir)
+    sh_output += "%s -np 20 %s -s %s/%s.phy -n %s -m %s -f d -p 12345 -N 20 -w %s/ML_trees/ -q %s/partition.txt;\n" \
+                 % (which("mpirun"), which("raxmlHPC-MPI-SSE3"), outdir, file_name, file_name, model, outdir, outdir)
 
-    sh_output += "#%s -np 100 %s -s %s/%s.phy -n %s -m %s -f d -p 12345 -b 12345 -N 100 -w %s/bootstraps/;\n" \
-                 % (which("mpirun"), which("raxmlHPC-MPI-SSE3"), outdir, file_name, file_name, model, outdir)
+    sh_output += "#%s -np 100 %s -s %s/%s.phy -n %s -m %s -f d -p 12345 -b 12345 -N 100 -w %s/bootstraps/ -q " \
+                 "%s/partition.txt;\n" \
+                 % (which("mpirun"), which("raxmlHPC-MPI-SSE3"), outdir, file_name, file_name, model, outdir, outdir)
 
     sh_output += "#%s %s/ML_trees/RAxML_info.%s;\n" % (which("best_ML_tree.py"), outdir, file_name)
 
