@@ -59,7 +59,7 @@ def company_info(tablerows):
             output += "%s\t" % report_date
             output += "%s\t" % last_years_report_date
             change = ((timestamp(report_date) - timestamp(last_years_report_date) - 31536000) / -86400)
-            output += "%s days\t" % int(change)
+            output += "%s\t" % int(change)
             output += "%s\t" % expected_eps
             output += "%s" % last_years_eps
 
@@ -69,18 +69,24 @@ def company_info(tablerows):
 if __name__ == '__main__':
     date = datetime.date.today()
     today = date.strftime("%d")
+    month = date.strftime("%m")
     valid_days = []
-    for _ in range(31):
+    for _ in range(32):
         if date.strftime("%a") not in ["Sat", "Sun"]:
             valid_days.append(date.strftime("%Y-%b-%d"))
-        date += datetime.timedelta(days=1)
-        if date.strftime("%d") == today:
+
+        if date.strftime("%d") == today and date.strftime("%m") != month:
             break
 
-    print("#Ticker\tMarket cap\tReport date\tLast year's report\tChange\tExpected EPS\tLast year's EPS")
+        date += datetime.timedelta(days=1)
+
+
+    print("#Ticker\tMarket cap\tReport date\tLast year's report\tChange (days)\tExpected EPS\tLast year's EPS")
     for next_day in valid_days:
         url = "http://www.nasdaq.com/earnings/earnings-calendar.aspx?date=%s" % next_day
         content = requests.get(url).text
         soup = BeautifulSoup(content, 'html5lib')
         if soup.find(id='ECCompaniesTable'):
             company_info(soup.find(id='ECCompaniesTable').find_all('tr'))
+
+    print("Done: %s - %s" % (valid_days[0], valid_days[-1]))
