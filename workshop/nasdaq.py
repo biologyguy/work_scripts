@@ -14,6 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import datetime
+import MyFuncs
 
 
 def timestamp(date_string):
@@ -63,10 +64,11 @@ def company_info(tablerows):
             output += "%s\t" % expected_eps
             output += "%s" % last_years_eps
 
-            print(output)
+            dyn_print.write("%s\n" % output)
 
 
 if __name__ == '__main__':
+    dyn_print = MyFuncs.DynamicPrint()
     date = datetime.date.today()
     today = date.strftime("%d")
     month = date.strftime("%m")
@@ -80,13 +82,15 @@ if __name__ == '__main__':
 
         date += datetime.timedelta(days=1)
 
+    dyn_print.write("#Ticker\tMarket cap\tReport date\tLast year's report"
+                    "\tChange (days)\tExpected EPS\tLast year's EPS\n")
 
-    print("#Ticker\tMarket cap\tReport date\tLast year's report\tChange (days)\tExpected EPS\tLast year's EPS")
     for next_day in valid_days:
+        dyn_print.write(next_day)
         url = "http://www.nasdaq.com/earnings/earnings-calendar.aspx?date=%s" % next_day
         content = requests.get(url).text
         soup = BeautifulSoup(content, 'html5lib')
         if soup.find(id='ECCompaniesTable'):
             company_info(soup.find(id='ECCompaniesTable').find_all('tr'))
 
-    print("Done: %s - %s" % (valid_days[0], valid_days[-1]))
+    dyn_print.write("Done: %s - %s" % (valid_days[0], valid_days[-1]))
