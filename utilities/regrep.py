@@ -27,7 +27,7 @@ if __name__ == '__main__':
     with open(in_args.file, "r") as ifile:
         file_conts = ifile.read()
 
-    sub_text = re.sub(in_args.regex, in_args.replace, file_conts)
+    sub_text = re.sub(in_args.regex, in_args.replace, file_conts, flags=re.MULTILINE)
 
     if in_args.in_place:
         with open(in_args.file, "w") as ofile:
