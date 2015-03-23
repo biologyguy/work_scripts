@@ -48,13 +48,20 @@ def company_info(tablerows):
         market_cap = re.search("\$[0-9]*\.*[0-9]*[A-Z]*|n/a", _company_info).group(0)
         if market_cap == "n/a" or convert_value(market_cap) < 250000000.:
             continue
+        if columns[0].a:
+            release_time = columns[0].a.get('href')
+            release_time = release_time.split("/")[-1]
+        else:
+            release_time = "unknown"
+
         report_date = columns[2].getText().strip()
         last_years_report_date = columns[6].getText().strip()
         expected_eps = columns[4].getText().strip()
         last_years_eps = columns[7].getText().strip()
 
         if timestamp(last_years_report_date) \
-                and timestamp(report_date) - timestamp(last_years_report_date) - 31536000 + 1209600 < 0:
+                and (timestamp(report_date) - timestamp(last_years_report_date) - 31536000 + 1209600 < 0
+                     or timestamp(report_date) - timestamp(last_years_report_date) - 31536000 - 1209600 > 0):
             output += "%s\t" % ticker
             output += "%s\t" % market_cap
             output += "%s\t" % report_date
@@ -62,7 +69,8 @@ def company_info(tablerows):
             change = ((timestamp(report_date) - timestamp(last_years_report_date) - 31536000) / -86400)
             output += "%s\t" % int(change)
             output += "%s\t" % expected_eps
-            output += "%s" % last_years_eps
+            output += "%s\t" % last_years_eps
+            output += "%s" % release_time
 
             dyn_print.write("%s\n" % output)
 
@@ -83,7 +91,7 @@ if __name__ == '__main__':
         date += datetime.timedelta(days=1)
 
     dyn_print.write("#Ticker\tMarket cap\tReport date\tLast year's report"
-                    "\tChange (days)\tExpected EPS\tLast year's EPS\n")
+                    "\tChange (days)\tExpected EPS\tLast year's EPS\tTime\n")
 
     for next_day in valid_days:
         dyn_print.write(next_day)
