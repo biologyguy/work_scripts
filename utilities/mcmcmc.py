@@ -4,6 +4,7 @@
 
 """
 Use the Metropolis-Hastings algorithm to estimate optimal parameters for a given function.
+ToDo: Make multicore
 """
 
 import os
@@ -80,16 +81,23 @@ class _Chain():
         # Sample `function` for starting min/max scores
         self.raw_min = 0.
         self.raw_max = 0.
-        valve = 10
+        valve = 1
+        print("Setting initial chain parameters:")
         while len(self.score_history) < 2 or min(self.score_history) == max(self.score_history):
+            output = "\tStep %s:" % valve
             func_args = []
             for variable in self.variables:
-                variable.set_value(variable.max * (1 / valve))
+                variable.draw_random()
                 func_args.append(variable.draw_value)
-            self.score_history.append(function(func_args))
-            valve -= 1
-            if valve == 0:
-                sys.exit("Popped the valve")
+                output += " %s = %s," % (variable.name, variable.current_value)
+
+            score = function(func_args)
+            self.score_history.append(score)
+            output += " Score = %s" % score
+            print(output)
+            if valve == 10:
+                sys.exit("Popped the safety valve while initializing chain.")
+            valve += 1
 
         for variable in self.variables:
             variable.draw_random()
