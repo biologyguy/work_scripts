@@ -1,0 +1,105 @@
+Anaconda
+
+-http://continuum.io/downloads, click on I WANT PYTHON #
+-Right click the download link and copy link location
+-past in address bar and delete the _64 at the end of the url
+-Save file
+-While downloading:
+
+$: cd ~/Downloads
+
+cd
+nano testfile.txt
+ls
+ls -a
+ls -l
+cat
+head -100
+tail
+mv
+cp
+mkdir
+rm (with and without -r)
+rmdir (with and without content)
+stdout >
+stdin <
+pipe |
+^c (use ping www.google.com to demonstrate)
+
+
+$: bash Anaconda3-2.2.0-Linux-x86.sh
+-Space bar to run through agreement
+-accept defaults
+
+$: which python
+$: python
+	-To show py2
+-Close terminal and restart
+
+$: which python
+$: python
+	-To show py3
+
+$ conda install pandas
+
+Get Karl's git ID and give him access to work_scripts
+
+$: cd ~/Documents
+$: mkdir git_repos; cd git_repos
+$: git clone https://github.com/biologyguy/work_scripts.git
+
+Set up history_recorder and history_search
+$: cd work_scripts/utilities
+$: cat history_recorder.py
+$: sudo cp history_recorder.py /usr/local/bin/
+$: cd ~/
+$: mkdir .history
+$: cd .history
+$: pwd (and copy, Ctr+Shift C)
+$: sudo nano /usr/local/bin/history_recorder.py
+
+>  with open("/Volumes/Zippy/.history/%s" % current_file, "a") as ofile:
+
+to
+
+>  with open("~/.history/%s" % current_file, "a") as ofile:
+
+^X
+
+$: sudo ln -s /usr/local/bin/history_recorder.py /usr/local/bin/hist
+$: nano ~/.bashrc
+
+>  PROMPT_COMMAND="hist \$(history 1) $$"
+
+^X
+
+$: sudo cp ~/Documents/git_repos/workscripts/utilities/history_search.py /usr/local/bin/
+$: nano /usr/local/bin/history_search.py
+
+>  root, dirs, hist_files = next(os.walk("/Volumes/Zippy/.history/"))
+
+to
+
+>  root, dirs, hist_files = next(os.walk("~/.history/"))
+
+^X
+
+$: sudo ln -s /usr/local/bin/history_search.py /usr/local/bin/hs
+
+$: cd ~/Documents/git_repos/
+$: git clone https://github.com/biologyguy/BuddySuite.git
+
+Download and install Pycharm
+
+$: cp ../work_scripts/utilities/Steves.icls ~/.PyCharm40/config/colors/
+
+Launch pycharm
+Preferences > Editor > Colors & Fonts > Scheme name: Steves
+Preferences > Project: ??? > Project Interpreter > Make sure that the anaconda py3 is selected (or add local)
+
+
+
+Homework
+Learn about regular expressions...
+Use the requests (install with conda) and re packages to scrape a favorite website for something of interest 
+
