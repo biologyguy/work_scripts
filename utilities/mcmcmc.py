@@ -10,10 +10,14 @@ ToDo: Make multicore
 import os
 import sys
 import random
+import string
 import numpy as np
 from scipy.stats import norm
-from MyFuncs import DynamicPrint
+from MyFuncs import DynamicPrint, TempDir, usable_cpu_count
 from copy import deepcopy
+from multiprocessing import cpu_count, Process
+from copy import copy
+import pdb
 
 
 class Variable():
@@ -49,7 +53,7 @@ class Variable():
             safety_check -= 1
         self.draw_value = draw_val
         self.history["draws"].append(self.draw_value)
-        return self.draw_value
+        return
 
     def draw_random(self):
         self.current_value = random.random() * (self.max - self.min) + self.min
@@ -77,6 +81,7 @@ class _Chain():
         self.current_score = 0.
         self.proposed_score = 0.
         self.score_history = []
+        self.name = "".join([random.choice(string.ascii_letters + string.digits) for _ in range(20)])
 
         # Sample `function` for starting min/max scores
         self.raw_min = 0.
@@ -141,8 +146,9 @@ class _Chain():
     def accept(self):
         for variable in self.variables:
             variable.accept_draw()
-            self.current_raw_score = self.proposed_raw_score
-            self.current_score = self.proposed_score
+
+        self.current_raw_score = self.proposed_raw_score
+        self.current_score = self.proposed_score
         return
 
     def set_gaussian(self):
@@ -160,24 +166,31 @@ class _Chain():
         self.set_gaussian()
         return
 
+    def __str__(self):
+        output = "Chain %s" % self.name
+        for variable in self.variables:
+            output += "\n\t%s:\t%s" % (variable.name, variable.current_value)
+        output += "\n\tScore:\t%s" % self.current_raw_score
+        return output
+
 
 class MCMCMC():
     def __init__(self, variables, function, steps=10000, sample_rate=100, num_chains=3,
                  outfile='./mcmcmc_out.csv', burn_in=100):
 
-        self.variables = variables
+        self.global_variables = variables
         self.steps = steps
         self.sample_rate = sample_rate
         self.output = ""
         self.outfile = os.path.abspath(outfile)
         with open(self.outfile, "w") as ofile:
             heading = "Gen\t"
-            for var in self.variables:
+            for var in self.global_variables:
                 heading += "%s\t" % var.name
             heading += "result\n"
             ofile.write(heading)
 
-        self.chains = [_Chain(deepcopy(self.variables), function) for _ in range(num_chains)]
+        self.chains = [_Chain(deepcopy(self.global_variables), function) for _ in range(num_chains)]
         self.best = {"score": 0., "variables": {x.name: 0. for x in variables}}
 
         # Set a cold chain. The cold chain should always be set at index 0, even if a chain swap occurs
@@ -195,10 +208,100 @@ class MCMCMC():
         high dimensional variable space because it will increase the probability of accepting a new sample. It isn't
         implemented here, but good to keep in mind.
         """
+        def mc_step_run(_chain, args):
+            _func_args, out_path = args
+            with open(out_path, "w") as ofile:
+                ofile.write(str(_chain.function(_func_args)))
+            return
+
+        def step_parse(_chain):
+            with open("%s/%s" % (temp_dir.path, _chain.name), "r") as ifile:
+                _chain.proposed_raw_score = float(ifile.read())
+
+            if len(_chain.score_history) >= 1000:
+                _chain.score_history.pop(0)
+
+            _chain.score_history.append(_chain.proposed_raw_score)
+            _chain.raw_max = max(_chain.score_history)
+            _chain.raw_min = min(_chain.score_history)
+            _chain.set_gaussian()
+
+            _chain.proposed_score = _chain.proposed_raw_score - _chain.raw_min
+
+            if _chain.proposed_score >= _chain.current_score:
+                _chain.accept()
+
+            else:
+                rand_check_val = random.random()
+                accept_check = _chain.gaussian_pdf.pdf(_chain.proposed_score) / \
+                               _chain.gaussian_pdf.pdf(_chain.current_score)
+
+                if accept_check > rand_check_val:
+                    _chain.accept()
+            return
+
+        temp_dir = TempDir()
+        max_processes = usable_cpu_count()
         counter = 0
         while counter <= self.steps:
+            running_processes = 0
+            child_list = {}
             for chain in self.chains:
-                chain.step()
+                while 1:     # Only fork a new process when there is a free processor.
+                    if running_processes < max_processes:
+                        # Start new process
+                        func_args = []
+                        for variable in chain.variables:
+                            variable.draw_new_value()
+                            func_args.append(variable.draw_value)
+
+                        outfile = "%s/%s" % (temp_dir.path, chain.name)
+                        p = Process(target=mc_step_run, args=(chain, [func_args, outfile]))
+                        p.start()
+                        child_list[chain.name] = p
+                        running_processes += 1
+                        break
+
+                    else:
+                        # processor wait loop
+                        while 1:
+                            del_index = False
+                            for i in child_list:
+                                if child_list[i].is_alive():
+                                    continue
+                                else:
+                                    for finished_chain in self.chains:
+                                        if finished_chain.name == i:
+                                            step_parse(finished_chain)
+                                            running_processes -= 1
+                                            del_index = i
+                                            break
+
+                            if del_index:
+                                del child_list[del_index]
+
+                            if running_processes < max_processes:
+                                break
+
+            # wait for remaining processes to complete --> this is the same code as the processor wait loop above
+            while len(child_list) > 0:
+                del_index = False
+                for i in child_list:
+                    if child_list[i].is_alive():
+                        continue
+                    else:
+                        for finished_chain in self.chains:
+                            if finished_chain.name == i:
+                                step_parse(finished_chain)
+                                running_processes -= 1
+                                del_index = i
+                                break
+
+                        if del_index:
+                            del child_list[del_index]
+                            break  # need to break out of the for-loop, because the child_list index is changed by del
+
+            for chain in self.chains:
                 if chain.current_raw_score > self.best["score"]:
                     self.best["score"] = chain.current_raw_score
                     self.best["variables"] = {x.name: x.current_value for x in chain.variables}
@@ -251,7 +354,6 @@ if __name__ == '__main__':
     def parabola(var):
         x = var[0]
         output = (-6 * (x ** 2)) + (2 * x) + 4
-        # print(output)
         return output
 
     def paraboloid(_vars):
@@ -263,6 +365,6 @@ if __name__ == '__main__':
     parabola_variables = [Variable("x", -4, 4)]
     paraboloid_variables = [Variable("x", -100, 100, 0.01), Variable("y", -100, 100, 0.01)]
 
-    mcmcmc = MCMCMC(parabola_variables, parabola, steps=10000, sample_rate=1)
+    mcmcmc = MCMCMC(parabola_variables, parabola, steps=3000, sample_rate=1)
     mcmcmc.run()
     print(mcmcmc.best)

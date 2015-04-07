@@ -59,23 +59,34 @@ def pretty_time(seconds):
     return output
 
 
+def usable_cpu_count():
+    cpus = cpu_count()
+    if cpus > 7:
+        max_processes = cpus - 3
+    elif cpus > 3:
+        max_processes = cpus - 2
+    elif cpus > 1:
+        max_processes = cpus - 1
+    else:
+        max_processes = 1
+
+    return max_processes
+
+
 def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False, out_type=stdout):
         # fun little piece of abstraction here... directly pass in a function that is going to be looped over, and
         # fork those loops onto independent processes. Any arguments the function needs must be provided as a list.
         d_print = DynamicPrint(out_type)
-        cpus = cpu_count()
-        if max_processes == 0:
-            if cpus > 7:
-                max_processes = cpus - 3
-            elif cpus > 3:
-                max_processes = cpus - 2
-            elif cpus > 1:
-                max_processes = cpus - 1
-            else:
-                max_processes = 1
 
-        if max_processes > cpus:
-            max_processes = cpus
+        if max_processes == 0:
+            max_processes = usable_cpu_count()
+
+        else:
+            cpus = cpu_count()
+            if max_processes > cpus:
+                max_processes = cpus
+            elif max_processes < 1:
+                max_processes = 1
 
         running_processes = 0
         child_list = []
