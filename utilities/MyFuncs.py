@@ -8,7 +8,8 @@ import os
 from tempfile import TemporaryDirectory
 from shutil import copytree, rmtree
 from re import sub
-
+import string
+from random import choice
 
 # maybe use curses library in the future to extend this for multi-line printing
 class DynamicPrint():
@@ -169,11 +170,28 @@ class TempDir():
     def __init__(self):
         self.dir = next(self._make_dir())
         self.path = self.dir.name
+        self.subdirs = []
 
     def _make_dir(self):
         tmp_dir = TemporaryDirectory()
         yield tmp_dir
         rmtree(self.path)
+
+    def subdir(self):
+        new_hash = "".join([choice(string.ascii_letters + string.digits) for _ in range(10)])
+        while new_hash in self.subdirs:  # Catch the very unlikely case that a duplicate occurs
+            new_hash = "".join([choice(string.ascii_letters + string.digits) for _ in range(10)])
+
+        subdir_path = "%s/%s" % (self.path, new_hash)
+        os.mkdir(subdir_path)
+        self.subdirs.append(new_hash)
+        return subdir_path
+
+    def del_subdir(self, _dir):
+        _dir = _dir.split("/")[-1]
+        del self.subdirs[self.subdirs.index(_dir)]
+        rmtree("%s/%s" % (self.path, _dir))
+        return
 
     def save(self, location):
         if os.path.isdir(location):
