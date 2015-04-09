@@ -28,7 +28,7 @@ def score_alignme(alignme_file):
             seq2_len += 1
 
     norm_max = (seq1_len + seq2_len) * 4
-    print norm_max
+    print(norm_max)
 
     tally = 0.0
     count = 0
@@ -46,6 +46,5 @@ if __name__ == "__main__":
     parser.add_argument('in_file', help='', action='store')
     in_args = parser.parse_args()
 
-    file = open(in_args.in_file, "r")
-
-    print score_alignme(file)
+    with open(in_args.in_file, "r") as ifile:
+        print(score_alignme(ifile))

@@ -26,10 +26,10 @@ from Bio.Alphabet import generic_protein
 
 # my own custom class
 from pssm import PSSM
+from MyFuncs import run_multicore_function
 
 
 class Homology():
-    
     def __init__(self, fasta1, fasta2, out_dir):
         # instantiate a few variables
         self.trim_seqs1 = ""
@@ -38,6 +38,9 @@ class Homology():
         self.top_seqs2 = ""
         self.einsi_seqs1 = ""
         self.einsi_seqs2 = ""
+        self.alignme_transmembrane_weight = float()
+        self.alignme_psipred_weight = float()
+        self.alignme_pssm_weight = float()
 
         # get path info for input files
         self.fasta1 = os.path.abspath(fasta1)
@@ -48,8 +51,8 @@ class Homology():
         self.fasta1_dic = self._clean_fasta(self.fasta1_dic)
         self.fasta2_dic = SeqIO.to_dict(SeqIO.parse(self.fasta2, 'fasta'))
         self.fasta2_dic = self._clean_fasta(self.fasta2_dic)
-        self.base_name1 = ".".join(self.fasta1.split("/")[-1].split(".")[0:-1])
-        self.base_name2 = ".".join(self.fasta2.split("/")[-1].split(".")[0:-1])
+        self.base_name1 = ".".join(str(self.fasta1.split("/")[-1]).split(".")[:-1])
+        self.base_name2 = ".".join(str(self.fasta2.split("/")[-1]).split(".")[:-1])
         
         # Output directories  
         self.out_dir = os.path.abspath(out_dir)
@@ -74,8 +77,8 @@ class Homology():
         self.shuffle_scores_file_lock = Lock()
         
         # initialize a few variables to 'None' for sanity
-        self.pairwise_array = None
-        self.shuffle_scores_dic = None
+        self.pairwise_array = []
+        self.shuffle_scores_dic = {}
         
     def _prepare_outfiles(self):
         # Create output directories
@@ -87,7 +90,8 @@ class Homology():
         self._mkdir(self.alignme_dir)
         self._mkdir(self.shuffled_dir)
         
-        # unlink top and trim files if they already exist... The calling function opens file in append mode "a", so important to start with empty file
+        # unlink top and trim files if they already exist...
+        # The calling function opens file in append mode "a", so important to start with empty file
         self._clean_up([self.top_file1, self.top_file2, self.trim_seq_file1, self.trim_seq_file2])
     
     @staticmethod
@@ -103,19 +107,19 @@ class Homology():
         
         # Run octopus
         print("Execute Octopus on %s:" % self.base_name1)
-        self._run_multicore_function(self.fasta1_dic, self._octopus, 
-                                     ["/usr/local/blastdbs/species_protein/Hydra_magnipapillata"])
+        run_multicore_function(self.fasta1_dic, self._octopus,
+                               ["/usr/local/blastdbs/species_protein/Hydra_magnipapillata"])
         print("Execute Octopus on %s:" % self.base_name2)
-        self._run_multicore_function(self.fasta2_dic, self._octopus, 
-                                     ["/usr/local/blastdbs/species_protein/Hydra_magnipapillata"])
+        run_multicore_function(self.fasta2_dic, self._octopus,
+                               ["/usr/local/blastdbs/species_protein/Hydra_magnipapillata"])
         self._clean_up(["%s/PSSM_PRF_FILES" % self.out_dir, "%s/RAW_PRF_FILES" % self.out_dir, 
                         "%s/exec_times-bloctopus.txt" % self.out_dir, "%s/exec_times-octopus.txt" % self.out_dir])
         
         # process top files
         print("%s top file processing:" % self.base_name1)
-        self._run_multicore_function(self.fasta1_dic, self._process_top_files, [self.top_file1, self.trim_seq_file1])
+        run_multicore_function(self.fasta1_dic, self._process_top_files, [self.top_file1, self.trim_seq_file1])
         print("%s top file processing:" % self.base_name2)
-        self._run_multicore_function(self.fasta2_dic, self._process_top_files, [self.top_file2, self.trim_seq_file2])
+        run_multicore_function(self.fasta2_dic, self._process_top_files, [self.top_file2, self.trim_seq_file2])
         
         # create MSAs with MAFFT
         print("MAFFT alignment of %s" % self.base_name1,
@@ -154,7 +158,8 @@ class Homology():
         with open("%s/%s_einsi.fasta" % (self.out_dir, self.base_name2), "r") as seq_file:
             self.einsi_seqs2 = SeqIO.to_dict(SeqIO.parse(seq_file, "fasta"))
 
-        # generate PSSMs -- differentiates between transmembrane and non-TM regions for BLOSUM62 and PHAT respectively (implemented in the PSSM class).
+        # generate PSSMs -- differentiates between transmembrane and non-TM regions for
+        # BLOSUM62 and PHAT respectively (implemented in the PSSM class).
         align = AlignIO.read("%s/%s_einsi.fasta" % (self.out_dir, self.base_name1), "fasta")
         pssm1 = PSSM(align)
         pssm1.name = self.base_name1
@@ -175,30 +180,30 @@ class Homology():
         with open("%s/%s.pssm" % (self.out_dir, self.base_name1), "r") as pssm_file:
             pssm_lines = pssm_file.readlines()
             
-        self._run_multicore_function(self.einsi_seqs1, self._pssm, [pssm_lines])
+        run_multicore_function(self.einsi_seqs1, self._pssm, [pssm_lines])
         
         # fasta2
         print("Custom PSSMs for %s" % self.base_name2)
         with open("%s/%s.pssm" % (self.out_dir, self.base_name2), "r") as pssm_file:
             pssm_lines = pssm_file.readlines()
             
-        self._run_multicore_function(self.einsi_seqs2, self._pssm, [pssm_lines])
+        run_multicore_function(self.einsi_seqs2, self._pssm, [pssm_lines])
 
         # Now onto PSI-PRED
         print("Executing PSI-Pred on %s" % self.base_name1)
         # fasta1 first
-        self._run_multicore_function(self.trim_seqs1, self._psi_pred)
+        run_multicore_function(self.trim_seqs1, self._psi_pred)
         
         print("Executing PSI-Pred on %s" % self.base_name2)
         # fasta2 next
-        self._run_multicore_function(self.trim_seqs2, self._psi_pred)
+        run_multicore_function(self.trim_seqs2, self._psi_pred)
 
         # Run AlignMe on all pairwise combinations
         print("Pairwise AlignMe runs:")
-        self._run_multicore_function(self.pairwise_array, self.alignme)
+        run_multicore_function(self.pairwise_array, self.alignme)
     
     def save_obj(self, save_file):
-        if not self.shuffle_scores_dic:
+        if len(self.shuffle_scores_dic) == 0:
             print("Sorry, your can't save the shuffle_scores_dic until you've actually generated it!")
             return
 
@@ -248,79 +253,7 @@ class Homology():
         for next_dir in dir_list:
             if os.path.exists(next_dir):
                 Popen("rm -R " + next_dir, shell=True).wait()
-        return "Removed " + str(dir_list)    
-
-    @staticmethod
-    def _run_multicore_function(iterable, function, func_args=[], max_processes=0):
-        # fun little peice of abstraction here... directly pass in a function that is going to be looped over, and fork
-        # those loops onto independant processors. Any arguments the function needs must be provided as a list/tupel.
-        if max_processes == 0:
-            cpus = cpu_count()
-            if cpus > 7:
-                max_processes = cpus - 3
-            elif cpus > 3:
-                max_processes = cpus - 2
-            elif cpus > 1:
-                max_processes = cpus - 1
-            else:
-                max_processes = 1
-        
-        running_processes = 0
-        child_list = []
-        start_time = round(time.clock())
-        elapsed = 0
-        counter = 0
-        # fire up the multi-core!!
-        print("\tRunning job 0 of %s" % len(iterable),)
-        for next_iter in iterable:
-            if type(iterable) is dict:
-                next_iter = iterable[next_iter]
-            while 1:
-                if running_processes < max_processes:
-                    # Start new process
-                    print("\r\tRunning job %s of %s (%i sec)" % (counter, len(iterable), elapsed),)
-                    if len(func_args) == 0: 
-                        p = Process(target=function, args=(next_iter,))
-                    else:
-                        p = Process(target=function, args=(next_iter, func_args))
-                    p.start()
-                    child_list.append(p)
-                    running_processes += 1
-                    counter += 1
-                    break
-                else:
-                    #processor wait loop
-                    while 1:
-                        for next_child in range(len(child_list)):
-                            if child_list[next_child].is_alive():
-                                continue
-                            else:
-                                child_list.pop(next_child)
-                                running_processes -= 1
-                                break
-                        if (start_time + elapsed) < round(time.clock()):
-                            elapsed = round(time.clock()) - start_time
-                            sys.stdout.write("\r\tRunning job %s of %s (%i sec)" % (counter, len(iterable), elapsed),)
-                            sys.stdout.flush()
-                            
-                        if running_processes < max_processes:
-                            break
-                        
-        # wait for remaining processes to complete
-        while len(child_list) > 0:
-            if (start_time + elapsed) < round(time.clock()):
-                elapsed = round(time.clock()) - start_time
-                sys.stdout.write("\r\tRunning job %s of %s (%i sec)" % (counter, len(iterable), elapsed),)
-                sys.stdout.flush()
-            for next_child in range(len(child_list)):
-                if child_list[next_child].is_alive():
-                    continue
-                else:
-                    child_list.pop(next_child)
-                    running_processes -= 1
-                    break  # need to break out of the for-loop, because the child_list index is changed by pop
-        print(" --> DONE\n")
-        return 
+        return "Removed " + str(dir_list)
     
     def _octopus(self, seq_obj, blastdb):
         tmp_dir = self._mkdir(self.tmp_dir + "/" + seq_obj.id)
@@ -353,21 +286,22 @@ class Homology():
         return
 
     def _process_top_files(self, seq_obj, out_files):
-        top_output = ''    
         top_in_file = "%s/%s.top" % (self.out_dir, seq_obj.id)
         nnprf_file = "%s/%s.nnprf" % (self.nnprf_dir, seq_obj.id)
         
         with open(top_in_file, "r") as i_file:
+            top_output = []
             file_conts = i_file.read()
             file_conts = file_conts.split('\n')
             file_conts.pop(0)
             file_conts = "".join(file_conts)
             membranes = re.finditer('[io]M+[io]', file_conts)
-            
-            top_output = [file_conts]
+
+            top_output.append(file_conts)
             for membrane in membranes:
-                top_output.append([membrane.start() + 1, membrane.end() - 1])
-                        
+                tm = (membrane.start() + 1, membrane.end() - 1)
+                top_output.append(tm)
+
         if len(top_output) != 5:
             # Kill this sequence if it doesn't have exactly four TM domains
             self._clean_up([nnprf_file])           
@@ -395,32 +329,32 @@ class Homology():
         self._clean_up([top_in_file])
         return
     
-    def _pssm(self,seq_obj,pssm_lines):
-        with open("%s/%s.pssm" % (self.pssm_dir,seq_obj.id), "w") as pssm_out_file:
-            pssm_out_file.write("\nTrimmed pssm file for %s\n%s" % (seq_obj.id,pssm_lines[0][1]))
+    def _pssm(self, seq_obj, pssm_lines):
+        with open("%s/%s.pssm" % (self.pssm_dir, seq_obj.id), "w") as pssm_out_file:
+            pssm_out_file.write("\nTrimmed pssm file for %s\n%s" % (seq_obj.id, pssm_lines[0][1]))
             seq_list = list(seq_obj.seq)
-            index = 2 #need to skip the first couple lines of the pssm file (header stuff)
+            index = 2  # need to skip the first couple lines of the pssm file (header stuff)
             seq_position = 1
             for position in seq_list:
                 if position != "-":
-                    out_line = re.search("[A-Z\-].+",pssm_lines[0][index])
-                    pssm_out_file.write("%s %s%s\n" % (str(seq_position),position,out_line.group(0)[1:]))
+                    out_line = re.search("[A-Z\-].+", pssm_lines[0][index])
+                    pssm_out_file.write("%s %s%s\n" % (str(seq_position), position, out_line.group(0)[1:]))
                     seq_position += 1                 
                 index += 1
         return
 
-    def _psi_pred(self,seq_obj):    
-        tmp_fasta = "%s/%s.fa" % (self.tmp_dir,seq_obj.id)
+    def _psi_pred(self, seq_obj):
+        tmp_fasta = "%s/%s.fa" % (self.tmp_dir, seq_obj.id)
         with open(tmp_fasta, "w") as tmp_file:
-            SeqIO.write(seq_obj,tmp_file, "fasta")
+            SeqIO.write(seq_obj, tmp_file, "fasta")
         
         Popen("psipred %s > /dev/null 2>&1" % tmp_fasta, shell=True).wait()
-        self._clean_up([seq_obj.id + ".ss",seq_obj.id + ".horiz"])
-        Popen("mv %s.ss2 %s/%s.ss2" % (seq_obj.id, self.ss2_dir,seq_obj.id), shell=True).wait()
+        self._clean_up([seq_obj.id + ".ss", seq_obj.id + ".horiz"])
+        Popen("mv %s.ss2 %s/%s.ss2" % (seq_obj.id, self.ss2_dir, seq_obj.id), shell=True).wait()
         return
         
     def alignme(self, combination):
-        sim_file_loc = "%s/%s-%s.simf" % (self.tmp_dir,combination[0],combination[1])  
+        sim_file_loc = "%s/%s-%s.simf" % (self.tmp_dir, combination[0], combination[1])
         
         self.alignme_transmembrane_weight = 4.2
         self.alignme_psipred_weight = 1.4
@@ -443,7 +377,7 @@ class Homology():
             sim_file.write("weight: %s type: PositionSpecificSimilarity PSSM1: %s/%s.pssm PSSM2: %s/%s.pssm\n" %
                            (self.alignme_pssm_weight, self.pssm_dir, combination[0], self.pssm_dir, combination[1]))
         
-        output_loc = "%s/%s-%s" % (self.alignme_dir,combination[0],combination[1]) 
+        output_loc = "%s/%s-%s" % (self.alignme_dir, combination[0], combination[1])
         
         above_threshold_gap_opening_penalty = 5
         above_threshold_gap_extension_penalty = 3
@@ -471,26 +405,26 @@ class Homology():
             score = self.score_alignme(handle)
         self._clean_up(["%s.*" % output_loc])
         return score
-    
-    def score_alignme(self,alignme_file):
+
+    @staticmethod
+    def score_alignme(alignme_file):
         file_lines = alignme_file.readlines()
         
         # clear out header rows
         while True:
-            if re.match("#",file_lines[0]) != None: 
+            if not re.match("#", file_lines[0]):
                 del file_lines[0]
             else:
                 break   
         del file_lines[-1]
         
-        tally = 0.0   
-        count = 0
-        for next in file_lines:
-            regular = re.sub("\s+", ", ",next)
-            regular = re.sub("\?0", "0",regular)
+        tally = 0.0
+        for _next in file_lines:
+            regular = re.sub("\s+", ", ", _next)
+            regular = re.sub("\?0", "0", regular)
             data = regular.split(", ")
             tally += abs(float(data[1]) - float(data[5])) + abs(float(data[2]) - float(data[6])) \
-                + abs(float(data[3]) - float(data[7])) + abs(float(data[4])-float(data[8]))
+                + abs(float(data[3]) - float(data[7])) + abs(float(data[4]) - float(data[8]))
         
         return round(tally, 1)
 
@@ -498,7 +432,7 @@ class Homology():
         with open("%s/scores_file.dat" % self.shuffled_dir, "w") as scores_file:
             scores_file.write("# AlignMe scores for shuffled sequences\n#Seq1\tSeq2\tShuffle#\tScore")              
                    
-        self._run_multicore_function(range(num_shuffles), self.shuffled_align, [combination[0],combination[1]])        
+        run_multicore_function(range(num_shuffles), self.shuffled_align, [combination[0], combination[1]])
         
         mv_dir = "%s/%s-%s" % (self.shuffled_dir, combination[0], combination[1])
         self._mkdir(mv_dir)
@@ -527,26 +461,27 @@ class Homology():
         id2 = args[1]
         
         def get_top(topology_obj):
-            membranes = re.finditer('[io]M+[io]',str(topology_obj.seq))
+            membranes = re.finditer('[io]M+[io]', str(topology_obj.seq))
             output = [str(topology_obj.seq)]
+
             for _next in membranes:
-                output.append([_next.start()+1, _next.end()-1])
+                output += [(_next.start() + 1, _next.end() - 1)]
             return output
         
         top1 = get_top(self.top_seqs1[id1])
         top2 = get_top(self.top_seqs2[id2])
         
-        def compile_profiles(seq_obj, id):
+        def compile_profiles(seq_obj, _id):
             seq_pos_list = list(seq_obj.seq)
             output = list(range(len(seq_pos_list)))
             
-            with open("%s/%s.pssm" % (self.pssm_dir, id), "r") as pssm:
+            with open("%s/%s.pssm" % (self.pssm_dir, _id), "r") as pssm:
                 pssm_list = pssm.readlines()
             
-            with open("%s/%s.nnprf" % (self.nnprf_dir, id), "r") as nnprf:
+            with open("%s/%s.nnprf" % (self.nnprf_dir, _id), "r") as nnprf:
                 nnprf_list = nnprf.readlines()
             
-            with open("%s/%s.ss2" % (self.ss2_dir, id), "r") as ss2:
+            with open("%s/%s.ss2" % (self.ss2_dir, _id), "r") as ss2:
                 ss2_list = ss2.readlines()
             
             for _next in range(len(seq_pos_list)):
@@ -576,7 +511,7 @@ class Homology():
             non_end = 0
             mem_start = 0
             for _next in range(len(top) - 1):
-                shuffled_seq += non_membranes[non_start:non_start + (top[_next + 1][0]-non_end)]
+                shuffled_seq += non_membranes[non_start:non_start + (top[_next + 1][0] - non_end)]
                 shuffled_seq += membranes[mem_start:mem_start + (top[_next + 1][1] - top[_next + 1][0])]
                 non_start += top[_next + 1][0] - non_end
                 non_end = top[_next + 1][1]
@@ -592,41 +527,41 @@ class Homology():
         shuf1_base_name = "%s_%04d" % (id1, iteration)
         shuf2_base_name = "%s_%04d" % (id2, iteration)
         
-        def make_shuffled_files(shuffle_seq_list, id, base_name):
+        def make_shuffled_files(_shuffle_seq_list, _id, base_name):
             with open("%s/%s.pssm" % (self.pssm_dir, base_name), "w") as pssm:
-                pssm.write("\nTrimmed pssm file for shuffled%s\n  A C E D G F I H K M L N Q P S R T W V Y\n" % id)
+                pssm.write("\nTrimmed pssm file for shuffled%s\n  A C E D G F I H K M L N Q P S R T W V Y\n" % _id)
                 counter = 0
-                for _ in shuffle_seq_list:
-                    re_indexed = re.sub("[0-9]+", str(counter + 1), shuffle_seq_list[counter][3], 1)
+                for _ in _shuffle_seq_list:
+                    re_indexed = re.sub("[0-9]+", str(counter + 1), _shuffle_seq_list[counter][3], 1)
                     pssm.write(re_indexed)
                     counter += 1
             
             with open("%s/%s.nnprf" % (self.nnprf_dir, base_name), "w") as nnprf:
                 nnprf.write("Sequence: %s\n\nLength of query sequence: %s\n\n\nSTART 1\nALPHA:   M       L       "
-                            "G       I       -      <SPACE> <LABEL> <QUERY>\n" % (base_name, len(shuffle_seq_list)))
+                            "G       I       -      <SPACE> <LABEL> <QUERY>\n" % (base_name, len(_shuffle_seq_list)))
                 counter = 0
-                for _ in shuffle_seq_list:
-                    re_indexed = re.sub("[0-9]+",str(counter+1),shuffle_seq_list[counter][1],1)
+                for _ in _shuffle_seq_list:
+                    re_indexed = re.sub("[0-9]+", str(counter + 1), _shuffle_seq_list[counter][1], 1)
                     nnprf.write(re_indexed)
                     counter += 1
             
-            with open("%s/%s.ss2" % (self.ss2_dir,base_name), "w") as ss2:
+            with open("%s/%s.ss2" % (self.ss2_dir, base_name), "w") as ss2:
                 ss2.write("# PSIPRED via homology_class.shuffled_align.make_shuffled_files() \n\n")
                 counter = 0
-                for _ in shuffle_seq_list:
-                    re_indexed = '{:>31}'.format(re.sub("[0-9]+",str(counter+1),shuffle_seq_list[counter][2],1).lstrip())
+                for _ in _shuffle_seq_list:
+                    re_indexed = '{:>31}'.format(re.sub("[0-9]+", str(counter + 1), _shuffle_seq_list[counter][2], 1).lstrip())
                     ss2.write(re_indexed)
                     counter += 1
             
-            with open("%s/%s.fa" % (self.tmp_dir,base_name), "w") as fa:
-                fa.write(">%s\n" % id)
+            with open("%s/%s.fa" % (self.tmp_dir, base_name), "w") as fa:
+                fa.write(">%s\n" % _id)
                 seq = ""
-                for _next in shuffle_seq_list:
+                for _next in _shuffle_seq_list:
                     seq += _next[0]
                 fa.write("%s\n" % seq)
             return
         
-        #make tmp pssm
+        # make tmp pssm
         make_shuffled_files(shuffled1, id1, shuf1_base_name)
         make_shuffled_files(shuffled2, id2, shuf2_base_name)
 
