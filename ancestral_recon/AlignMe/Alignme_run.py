@@ -16,7 +16,7 @@ from pssm import PSSM
 import argparse
 from multiprocessing import Lock
 from subprocess import Popen
-from Bio import SeqIO
+from Bio import SeqIO, AlignIO
 
 
 def clean_up(path_list):
@@ -56,6 +56,33 @@ def octopus(seq_obj, args):
            seq_obj.id), shell=True).wait()
 
     return
+
+
+def _pssm(seq_obj, _pssm_lines):
+    with open("%s/%s.pssm" % (pssm_dir, seq_obj.id), "w") as pssm_out_file:
+        pssm_out_file.write("\nPSSM file for %s\n%s" % (seq_obj.id, _pssm_lines[0][1]))
+        seq_list = list(seq_obj.seq)
+        index = 2  # need to skip the first couple lines of the pssm file (header stuff)
+        seq_position = 1
+        for position in seq_list:
+            if position != "-":
+                out_line = re.search("[A-Z\-].+", _pssm_lines[0][index])
+                pssm_out_file.write("%s %s%s\n" % (str(seq_position), position, out_line.group(0)[1:]))
+                seq_position += 1
+            index += 1
+    return
+
+
+def _psi_pred(seq_obj):
+    tmp_fasta = "%s/%s.fa" % (tmp_dir, seq_obj.id)
+    with open(tmp_fasta, "w") as tmp_file:
+        SeqIO.write(seq_obj, tmp_file, "fasta")
+
+    Popen("runpsipred %s > /dev/null 2>&1" % tmp_fasta, shell=True).wait()
+    clean_up([seq_obj.id + ".ss", seq_obj.id + ".horiz"])
+    Popen("mv %s.ss2 %s/%s.ss2" % (seq_obj.id, ss2_dir, seq_obj.id), shell=True).wait()
+    return
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="Alignme_run", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -120,7 +147,6 @@ if __name__ == '__main__':
     print("Execute Octopus on %s")
     run_multicore_function(seqbuddy.records, octopus, ["/usr/local/blastdbs/species_protein/Hydra_magnipapillata",
                                                        temporary_directory])
-
     clean_up(["%s/PSSM_PRF_FILES" % out_dir, "%s/RAW_PRF_FILES" % out_dir, "%s/exec_times-bloctopus.txt" % out_dir,
               "%s/exec_times-octopus.txt" % out_dir])
 
@@ -141,3 +167,34 @@ if __name__ == '__main__':
     Popen(mafft_command, shell=True).wait()
     print("  --> DONE")
 
+    # set up all-by-all dict
+    pairwise_array = []
+    for x in seqbuddy.records:
+        for y in seqbuddy.records:
+            pairwise_array.append((x.id, y.id))
+    
+    with open(top_file, "r") as file:
+        top_seqs = SeqIO.to_dict(SeqIO.parse(file, "fasta"))
+    
+    with open("%s/%s_einsi.fasta" % (out_dir, base_name), "r") as seq_file:
+        einsi_seqs = SeqIO.to_dict(SeqIO.parse(seq_file, "fasta"))
+    
+    # generate PSSMs -- differentiates between transmembrane and non-TM regions for
+    # BLOSUM62 and PHAT respectively (implemented in the PSSM class).
+    align = AlignIO.read("%s/%s_einsi.fasta" % (out_dir, base_name), "fasta")
+    pssm = PSSM(align)
+    pssm.name = base_name
+    pssm.alignment_membranes(top_file)
+    pssm.build_pssm()
+    pssm.write("%s/%s.pssm" % (out_dir, base_name))
+
+    # create custom pssms for each included sequence by deleting space rows
+    print("\nCreating custom PSSMs for all sequences")
+    with open("%s/%s.pssm" % (out_dir, base_name), "r") as pssm_file:
+        pssm_lines = pssm_file.readlines()
+
+    run_multicore_function(einsi_seqs, _pssm, [pssm_lines])
+
+    # Now onto PSI-PRED
+    print("\nExecuting PSI-Pred")
+    run_multicore_function(seqbuddy.records, _psi_pred)
