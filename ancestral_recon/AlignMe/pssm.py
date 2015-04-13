@@ -1,6 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-from Bio import SeqIO, SubsMat
+from Bio import SeqIO
 from Bio.Align import MultipleSeqAlignment
 # from Bio.SubsMat import MatrixInfo
 from scipy import stats
@@ -451,12 +451,14 @@ class Compare:
                 # k
                 current_score = 0.0
                 for next_aa in self.pssm2_lod:
-                    # strip out the gap and X scores, which are just inflating scores meaninglessly, and (i think) reducing the signal-to-noise
+                    # strip out the gap and X scores, which are just inflating scores meaninglessly, and (i think)
+                    # reducing the signal-to-noise
                     # if next_aa in ["-","X"]:
                     #    continue
 
                     for _next in range(self.window_size):
-                        if self.pssm1_lod[next_aa][counter1 + _next] < 0 and self.pssm2_lod[next_aa][counter2 + _next] < 0:
+                        if self.pssm1_lod[next_aa][counter1 + _next] < 0 \
+                                and self.pssm2_lod[next_aa][counter2 + _next] < 0:
                             continue
                         current_score += self.pssm1_lod[next_aa][
                             counter1 + _next] * self.pssm2_lod[next_aa][counter2 + _next]

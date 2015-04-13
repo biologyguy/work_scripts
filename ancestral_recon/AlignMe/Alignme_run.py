@@ -84,6 +84,82 @@ def _psi_pred(seq_obj):
     return
 
 
+def alignme(combination):
+    sim_file_loc = "%s/%s-%s.simf" % (tmp_dir, combination[0], combination[1])
+
+    alignme_transmembrane_weight = 4.2
+    alignme_psipred_weight = 1.4
+    alignme_pssm_weight = 0.2
+
+    with open(sim_file_loc, "w") as sim_file:
+        sim_file.write("weight: %s type: UniversalProfileSimilarity column: 3 headerlines: 7 profile1: %s/%s.nnprf "
+                       "profile2: %s/%s.nnprf\n" % (alignme_transmembrane_weight,
+                                                    nnprf_dir, combination[0], nnprf_dir, combination[1]))
+
+        ss2_profile_text = " headerlines: 2 profile1: %s/%s.ss2 profile2: %s/%s.ss2\n" % \
+                           (ss2_dir, combination[0], ss2_dir, combination[1])
+        sim_file.write("weight: %s type: UniversalProfileSimilarity column: 4%s" %
+                       (alignme_psipred_weight, ss2_profile_text))
+        sim_file.write("weight: %s type: UniversalProfileSimilarity column: 5%s" %
+                       (alignme_psipred_weight, ss2_profile_text))
+        sim_file.write("weight: %s type: UniversalProfileSimilarity column: 6%s" %
+                       (alignme_psipred_weight, ss2_profile_text))
+
+        sim_file.write("weight: %s type: PositionSpecificSimilarity PSSM1: %s/%s.pssm PSSM2: %s/%s.pssm\n" %
+                       (alignme_pssm_weight, pssm_dir, combination[0], pssm_dir, combination[1]))
+
+    output_loc = "%s/%s-%s" % (alignme_dir, combination[0], combination[1])
+
+    above_threshold_gap_opening_penalty = 5
+    above_threshold_gap_extension_penalty = 3
+
+    below_threshold_gap_opening_penalty = 3
+    below_threshold_gap_extension_penalty = 1.5
+
+    termini_gap_opening_penalty = 3
+    termini_gap_extension_penalty = 1.5
+
+    thresholds_for_penalties = 0.5
+
+    strings = (tmp_dir, combination[0], tmp_dir, combination[1], sim_file_loc, output_loc, output_loc,
+               below_threshold_gap_opening_penalty, above_threshold_gap_opening_penalty,
+               below_threshold_gap_extension_penalty, above_threshold_gap_extension_penalty,
+               termini_gap_opening_penalty, termini_gap_extension_penalty, thresholds_for_penalties)
+
+    Popen("alignme -fasta_file1 %s/%s.fa -fasta_file2 %s/%s.fa -similarity_score_file %s -output_aligned_profiles "
+          "%s.prf -output_aligned_sequences %s.aln -below_threshold_gap_opening_penalty %s "
+          "-above_threshold_gap_opening_penalty %s -below_threshold_gap_extension_penalty %s "
+          "-above_threshold_gap_extension_penalty %s -termini_gap_opening_penalty %s "
+          "-termini_gap_extension_penalty %s -thresholds_for_penalties %s" % strings, shell=True).wait()
+
+    with open("%s.prf" % output_loc, "r") as handle:
+        score = score_alignme(handle)
+    clean_up(["%s.*" % output_loc])
+    return score
+
+
+def score_alignme(alignme_file):
+    file_lines = alignme_file.readlines()
+
+    # clear out header rows
+    while True:
+        if not re.match("#", file_lines[0]):
+            del file_lines[0]
+        else:
+            break
+    del file_lines[-1]
+
+    tally = 0.0
+    for _next in file_lines:
+        regular = re.sub("\s+", ", ", _next)
+        regular = re.sub("\?0", "0", regular)
+        data = regular.split(", ")
+        tally += abs(float(data[1]) - float(data[5])) + abs(float(data[2]) - float(data[6])) \
+            + abs(float(data[3]) - float(data[7])) + abs(float(data[4]) - float(data[8]))
+
+    return round(tally, 1)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="Alignme_run", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -198,3 +274,7 @@ if __name__ == '__main__':
     # Now onto PSI-PRED
     print("\nExecuting PSI-Pred")
     run_multicore_function(seqbuddy.records, _psi_pred)
+
+    # Run AlignMe on all pairwise combinations
+    print("Pairwise AlignMe runs:")
+    run_multicore_function(pairwise_array, alignme)
