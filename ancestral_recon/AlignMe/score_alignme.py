@@ -3,48 +3,53 @@
 
 import argparse
 import re
-import sys
 
 
 def score_alignme(alignme_file):
-    file_list = alignme_file.readlines()
+    with open(alignme_file, "r") as ifile:
+        file_lines = ifile.readlines()
 
     # clear out header rows
     while True:
-        if not re.match("#", file_list[0]):
-            del file_list[0]
+        if not re.match("#", file_lines[0]):
+            del file_lines[0]
         else:
             break
-    del file_list[-1]
+    del file_lines[-1]
 
-    # determine normalizing maximum
+    # determine normalizing maximum. I have semi-arbitrarily set this as one-half the sum of residues in both seqs
     seq1_len = 0.0
     seq2_len = 0.0
-    for _next in file_list:
-        data = re.split("\s+", _next)
+    for data in file_lines:
+        data = re.split("\s+", data)
         if data[1] != "?0":
             seq1_len += 1
         if data[5] != "?0":
             seq2_len += 1
 
-    norm_max = (seq1_len + seq2_len) * 4
-    print(norm_max)
+    normalizing_len = (seq1_len + seq2_len) / 2
 
     tally = 0.0
-    count = 0
-    for _next in file_list:
-        regular = re.sub("\s+", ",", _next)
-        regular = re.sub("\?0", "0", regular)
-        data = regular.split(",")
-        tally += abs(float(data[1]) - float(data[5])) + abs(float(data[2]) - float(data[6])) + \
-                 abs(float(data[3]) - float(data[7])) + abs(float(data[4]) - float(data[8]))
+    for data in file_lines:
+        if data[0] == "#":
+            continue
+        data = re.sub("\s+", ",", data)
+        data = data.split(",")
+        if "?0" in [data[1], data[5]]:  # Gaps get a score of 0
+            continue
 
-    return round(tally / norm_max, 3)
+        # At the moment, all four parameters are given equal weight
+        membrane_score = 1 - abs(float(data[1]) - float(data[5]))
+        coil_score = 1 - abs(float(data[2]) - float(data[6]))
+        helix_score = 1 - abs(float(data[3]) - float(data[7]))
+        sheet_score = 1 - abs(float(data[4]) - float(data[8]))
+        tally += membrane_score + coil_score + helix_score + sheet_score
+
+    return round(tally / normalizing_len, 5) / 4  # The '4' is for the number of columns being compared
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="", description="")
     parser.add_argument('in_file', help='', action='store')
     in_args = parser.parse_args()
 
-    with open(in_args.in_file, "r") as ifile:
-        print(score_alignme(ifile))
+    print(score_alignme(in_args.in_file))
