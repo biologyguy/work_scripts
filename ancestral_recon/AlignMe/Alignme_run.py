@@ -49,11 +49,13 @@ def octopus(seq_obj, args):
     Popen("octopus %s/NameFile.txt %s/PSSM_PRF_FILES %s/RAW_PRF_FILES %s -N > /dev/null 2>&1" %
           (_tmp_dir, out_dir, out_dir, out_dir), shell=True).wait()
 
-    # do a little reformatting of the .nnprf files --> could probably re-implement this in python...
-    # I just grabbed this perl line from the web
-    Popen("perl -e 'local $/; $_ = <>; s/END(.*)//gs; print' %s/%s.nnprf > %s/%s.temp; mv %s/%s.temp %s/%s.nnprf" %
-          (nnprf_dir, seq_obj.id, nnprf_dir, seq_obj.id, nnprf_dir, seq_obj.id, nnprf_dir,
-           seq_obj.id), shell=True).wait()
+    # do a little reformatting of the .nnprf files --> Delete everything after the first group of values, before END 1
+    with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "r") as _ifile:
+        nnprf = _ifile.read()
+
+    with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "w") as _ofile:
+        regex = re.match(r'.+?(?=END)', nnprf, re.DOTALL)
+        _ofile.write(regex.group(0))
 
     return
 
@@ -134,6 +136,17 @@ def alignme(combination):
           "-above_threshold_gap_extension_penalty %s -termini_gap_opening_penalty %s "
           "-termini_gap_extension_penalty %s -thresholds_for_penalties %s" % strings, shell=True).wait()
 
+    # AlignMe makes an error while writing alignment files, so repair the damage...
+    with open("%s/%s-%s.aln" % (alignme_dir, combination[0], combination[1]), 'r') as _ifile:
+        output = ''
+        for line in _ifile:
+            if line[0] == " ":
+                line = line[1:]
+            output += line
+
+    with open("%s/%s-%s.aln" % (alignme_dir, combination[0], combination[1]), 'w') as _ofile:
+        _ofile.write(output)
+
     clean_up(["%s.*" % output_loc])
     return
 
@@ -210,7 +223,7 @@ if __name__ == '__main__':
     seqbuddy = delete_metadata(seqbuddy)
 
     if not in_args.base_name:
-        base_name = "AlineMe_input"
+        base_name = "AlignMe_input"
     else:
         base_name = in_args.base_name
 
