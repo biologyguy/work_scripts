@@ -37,7 +37,7 @@ if __name__ == '__main__':
     script_name = ".".join(script_name.split(".")[:-1])
     Popen("echo '#!/usr/bin/env python3' | cat - new_app.zip > %s" % script_name, shell=True).wait()
     Popen("chmod +x %s" % script_name, shell=True).wait()
-    os.rename(script_name, "%s/%s" % (main_dir, script_name))
+    Popen("mv %s %s/%s" % (script_name, main_dir, script_name), shell=True).wait()
     os.chdir(current_dir)
 
     print('New executable created: %s' % script_name)
