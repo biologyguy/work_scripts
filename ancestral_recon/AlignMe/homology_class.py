@@ -3,15 +3,9 @@
 
 # core python packages
 import os
-import time
-import sys
-import argparse
 import re
 import random
-import types
-import shutil
-from multiprocessing import Process, Lock, Value, Array, cpu_count
-from random import shuffle
+from multiprocessing import Lock
 from subprocess import Popen
 
 # Numpy
@@ -19,8 +13,6 @@ import numpy as np
 
 # BioPython
 from Bio import SeqIO, AlignIO
-# from Bio.SubsMat import MatrixInfo
-from Bio.Align import MultipleSeqAlignment
 from Bio.Seq import Seq
 from Bio.Alphabet import generic_protein
 
@@ -163,15 +155,15 @@ class Homology():
         align = AlignIO.read("%s/%s_einsi.fasta" % (self.out_dir, self.base_name1), "fasta")
         pssm1 = PSSM(align)
         pssm1.name = self.base_name1
-        pssm1.alignmentMembranes(self.top_file1)
-        pssm1.BuildPSSM()
+        pssm1.alignment_membranes(self.top_file1)
+        pssm1.build_pssm()
         pssm1.write("%s/%s.pssm" % (self.out_dir, self.base_name1))
         
         align = AlignIO.read("%s/%s_einsi.fasta" % (self.out_dir, self.base_name2), "fasta")
         pssm2 = PSSM(align)
         pssm2.name = self.base_name2
-        pssm2.alignmentMembranes(self.top_file2)
-        pssm2.BuildPSSM()
+        pssm2.alignment_membranes(self.top_file2)
+        pssm2.build_pssm()
         pssm2.write("%s/%s.pssm" % (self.out_dir, self.base_name2))
                 
         # create custom pssms for each included sequence by deleting space rows
