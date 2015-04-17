@@ -13,7 +13,8 @@ import argparse
 from multiprocessing import Lock
 from subprocess import Popen
 from math import log
-from MyFuncs import run_multicore_function, TempDir
+from time import time
+from MyFuncs import run_multicore_function, TempDir, pretty_time
 from SeqBuddy import SeqBuddy, delete_metadata
 from pssm import PSSM
 from Bio import SeqIO, AlignIO
@@ -244,7 +245,7 @@ def alignment_sub_mat_score(_subj_top, _query_top, _subj_align, _query_align):
     return {"score": _score, "gaps": gaps}
 
 
-def score_alignme(alignme_file):
+def score_alignme(alignme_file):  # This is the .prf file
     with open(alignme_file, "r") as _ifile:
         file_lines = _ifile.readlines()
 
@@ -284,7 +285,7 @@ def score_alignme(alignme_file):
         sheet_score = 1 - abs(float(data[4]) - float(data[8]))
         tally += membrane_score + coil_score + helix_score + sheet_score
 
-    return round(tally / normalizing_len, 5) / 4  # The '4' is for the number of columns being compared
+    return round((tally / normalizing_len) / 4, 5)  # The '4' is for the number of columns being compared
 
 
 if __name__ == '__main__':
@@ -370,10 +371,12 @@ if __name__ == '__main__':
     print("  ---> DONE")
 
     # create MSAs with MAFFT
+    mafft_time = round(time())
     mafft_command = "einsi --thread -1 --quiet %s > %s/%s_einsi.fasta" % (seq_file, out_dir, base_name)
-    print("\nMAFFT alignment\n%s" % mafft_command)
+    print("\nMAFFT alignment running")
     Popen(mafft_command, shell=True).wait()
-    print("  --> DONE")
+    mafft_time = pretty_time(round(time()) - mafft_time)
+    print("  --> DONE: %s" % mafft_time)
 
     # set up all-by-all dict
     pairwise_array = []
@@ -414,6 +417,8 @@ if __name__ == '__main__':
     print("\nPairwise AlignMe runs:")
     run_multicore_function(pairwise_array, alignme)
 
+    print("\nFinal scoring.")
+    final_process_time = round(time())
     # Get substitution matrix scores for each alignment
     subs_mat_scores = {}
     for pair in pairwise_array:
@@ -450,3 +455,6 @@ if __name__ == '__main__':
             final_score = structural_scores["%s-%s" % (pair[0], pair[1])] + subs_mat_scores["%s-%s" % (pair[0], pair[1])]
             final_score /= 2
             ofile.write("%s\t%s\t%s\n" % (pair[0], pair[1], final_score))
+
+    final_process_time = pretty_time(round(time()) - final_process_time)
+    print("  --> DONE: %s" % final_process_time)
