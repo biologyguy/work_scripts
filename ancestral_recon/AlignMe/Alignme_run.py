@@ -6,17 +6,22 @@
 Run all-by-all AlignMe
 """
 
-import sys
 import os
 import re
 import shutil
-from MyFuncs import run_multicore_function, TempDir
-from SeqBuddy import SeqBuddy, delete_metadata
-from pssm import PSSM
 import argparse
 from multiprocessing import Lock
 from subprocess import Popen
+from math import log
+from MyFuncs import run_multicore_function, TempDir
+from SeqBuddy import SeqBuddy, delete_metadata
+from pssm import PSSM
 from Bio import SeqIO, AlignIO
+from Bio.SubsMat import MatrixInfo, SeqMat
+
+
+PHAT = SeqMat(MatrixInfo.phat75_73)
+BLOSUM62 = SeqMat(MatrixInfo.blosum62)
 
 
 def clean_up(path_list):
@@ -33,29 +38,42 @@ def clean_up(path_list):
 
 
 def octopus(seq_obj, args):
-    blastdb, _tmp_dir = args
-    _tmp_dir = _tmp_dir.subdir()
-    with open("%s/%s.fa" % (_tmp_dir, seq_obj.id), "w") as _ofile:
-        SeqIO.write(seq_obj, _ofile, "fasta")
+    valve = 1
+    # There is a race condition (I think) that that causes a disruption in _tmp_dir.subdir(). It's infrequent
+    # enough that I can just iterate until Octopus executes successfully.
+    while True:
+        blastdb, _tmp_dir = args
+        try:
+            _tmp_dir = _tmp_dir.subdir()
+            with open("%s/%s.fa" % (_tmp_dir, seq_obj.id), "w") as _ofile:
+                SeqIO.write(seq_obj, _ofile, "fasta")
 
-    with open(_tmp_dir + "/NameFile.txt", "w") as _ofile:
-        seq_id = seq_obj.id.split(".")
-        _ofile.write(seq_id[0] + "\n")
-    
-    Popen("bloctopus %s/NameFile.txt %s %s %s %s %s %s -P > /dev/null 2>&1" %
-          (_tmp_dir, _tmp_dir, out_dir, shutil.which("blastall"), shutil.which("blastpgp"), blastdb,
-           shutil.which("makemat")), shell=True).wait()
+            with open(_tmp_dir + "/NameFile.txt", "w") as _ofile:
+                seq_id = seq_obj.id.split(".")
+                _ofile.write(seq_id[0] + "\n")
 
-    Popen("octopus %s/NameFile.txt %s/PSSM_PRF_FILES %s/RAW_PRF_FILES %s -N > /dev/null 2>&1" %
-          (_tmp_dir, out_dir, out_dir, out_dir), shell=True).wait()
+            Popen("bloctopus %s/NameFile.txt %s %s %s %s %s %s -P > /dev/null 2>&1" %
+                  (_tmp_dir, _tmp_dir, out_dir, shutil.which("blastall"), shutil.which("blastpgp"), blastdb,
+                   shutil.which("makemat")), shell=True).wait()
 
-    # do a little reformatting of the .nnprf files --> Delete everything after the first group of values, before END 1
-    with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "r") as _ifile:
-        nnprf = _ifile.read()
+            Popen("octopus %s/NameFile.txt %s/PSSM_PRF_FILES %s/RAW_PRF_FILES %s -N > /dev/null 2>&1" %
+                  (_tmp_dir, out_dir, out_dir, out_dir), shell=True).wait()
 
-    with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "w") as _ofile:
-        regex = re.match(r'.+?(?=END)', nnprf, re.DOTALL)
-        _ofile.write(regex.group(0))
+            # do a little reformatting of the .nnprf files --> Delete everything after the first group of values, before END 1
+            with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "r") as _ifile:
+                nnprf = _ifile.read()
+
+            with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "w") as _ofile:
+                regex = re.match(r'.+?(?=END)', nnprf, re.DOTALL)
+                _ofile.write(regex.group(0))
+            break
+
+        except FileNotFoundError:
+            print("\nOops %s: %s" % (seq_obj.id, valve))
+            valve += 1
+            if valve == 20:
+                raise SystemError("\nError: %s failed during Octopus step." % seq_obj.id)
+            continue
 
     return
 
@@ -138,22 +156,97 @@ def alignme(combination):
 
     # AlignMe makes an error while writing alignment files, so repair the damage...
     with open("%s/%s-%s.aln" % (alignme_dir, combination[0], combination[1]), 'r') as _ifile:
-        output = ''
+        _output = ''
         for line in _ifile:
             if line[0] == " ":
                 line = line[1:]
-            output += line
+            _output += line
+
+    # AlignMe also writes an extra line to .aln files if the sequence's length is exactly divisible by line length. This
+    # breaked BioPython...
+    _output = re.sub("^[^ ].* +$", '', _output, flags=re.MULTILINE)
 
     with open("%s/%s-%s.aln" % (alignme_dir, combination[0], combination[1]), 'w') as _ofile:
-        _ofile.write(output)
+        _ofile.write(_output)
 
     clean_up(["%s.*" % output_loc])
     return
 
 
+def bit_score(raw_score):
+    # These values were empirically determined for BLOSUM62 by Altschul
+    bit_k_value = 0.035
+    bit_lambda = 0.252
+
+    bits = ((bit_lambda * raw_score) - (log(bit_k_value))) / log(2)
+    return bits
+
+
+def scale_range(data, percentile=1.0):
+    if 0. > percentile > 1.0:
+        raise ValueError("scale_range() percentile parameter should be between 0.5 and 1.0")
+
+    if percentile < 0.5:
+        percentile = 1 - percentile
+
+    max_limit = round(len(data) * percentile) - 1
+    min_limit = -1 * (max_limit + 1)
+
+    if type(data) == dict:
+        sorted_data = sorted([data[key] for key in data])
+        _max = sorted_data[max_limit]
+        _min = sorted_data[min_limit]
+        data_range = _max - _min
+        for key in data:
+            data[key] = (data[key] - _min) / data_range
+            data[key] = 1. if data[key] > 1. else data[key]
+            data[key] = 0. if data[key] < 0. else data[key]
+
+    else:
+        sorted_data = sorted(data)
+        _max = sorted_data[max_limit]
+        _min = sorted_data[min_limit]
+        data_range = _max - _min
+        for i in range(len(data)):
+            data[i] = (data[i] - _min) / data_range
+            data[i] = 1. if data[i] > 1. else data[i]
+            data[i] = 0. if data[i] < 0. else data[i]
+
+    return data
+
+
+def alignment_sub_mat_score(_subj_top, _query_top, _subj_align, _query_align):
+    normalizing_len = (len(_subj_top) + len(_query_top)) / 2
+    _score = 0
+    gaps = 0
+    for i in range(len(_subj_align)):
+        if _subj_align[i] == "-":
+            gaps += 1
+            _query_top = _query_top[1:]
+
+        elif _query_align[i] == "-":
+            gaps += 1
+            _subj_top = _subj_top[1:]
+
+        else:
+            _pair = sorted((_subj_align[i], _query_align[i]))
+            _pair = tuple(_pair)
+            if _subj_top[0] == "M" and _query_top[0] == "M":
+                _score += PHAT[_pair]
+            else:
+                _score += BLOSUM62[_pair]
+
+            _subj_top = _subj_top[1:]
+            _query_top = _query_top[1:]
+
+    _score = bit_score(_score)
+    _score /= normalizing_len
+    return {"score": _score, "gaps": gaps}
+
+
 def score_alignme(alignme_file):
-    with open(alignme_file, "r") as ifile:
-        file_lines = ifile.readlines()
+    with open(alignme_file, "r") as _ifile:
+        file_lines = _ifile.readlines()
 
     # clear out header rows
     while True:
@@ -190,8 +283,6 @@ def score_alignme(alignme_file):
         helix_score = 1 - abs(float(data[3]) - float(data[7]))
         sheet_score = 1 - abs(float(data[4]) - float(data[8]))
         tally += membrane_score + coil_score + helix_score + sheet_score
-
-        # Also need to include some score from the PSSM...
 
     return round(tally / normalizing_len, 5) / 4  # The '4' is for the number of columns being compared
 
@@ -323,11 +414,39 @@ if __name__ == '__main__':
     print("\nPairwise AlignMe runs:")
     run_multicore_function(pairwise_array, alignme)
 
-    # Score all AlignMe runs, and push to file
+    # Get substitution matrix scores for each alignment
+    subs_mat_scores = {}
+    for pair in pairwise_array:
+        align = SeqBuddy("%s/ALIGNME_FILES/%s-%s.aln" % (out_dir, pair[0], pair[1]), "clustal")
+        align = align.records
+        subj_align = str(align[0].seq)
+        query_align = str(align[1].seq)
+
+        subj_top = str(top_seqs[pair[0]].seq)
+        query_top = str(top_seqs[pair[1]].seq)
+
+        output = alignment_sub_mat_score(subj_top, query_top, subj_align, query_align)
+        subs_mat_scores["%s-%s" % (pair[0], pair[1])] = output["score"]
+        # print("%s-%s\t%s\t%s" % (pair[0], pair[1], round(output["score"], 4), output["gaps"]))
+
+    subs_mat_scores = scale_range(subs_mat_scores, 0.95)
+
+    # Score the structural components of all AlignMe runs
+    structural_scores = {}
+    for pair in pairwise_array:
+        try:
+            score = score_alignme("%s/ALIGNME_FILES/%s-%s.prf" % (out_dir, pair[0], pair[1]))
+            structural_scores["%s-%s" % (pair[0], pair[1])] = score
+
+        except FileNotFoundError:
+            print("Error: Failed to find %s/ALIGNME_FILES/%s-%s.prf" % (out_dir, pair[0], pair[1]))
+            pass
+
+    structural_scores = scale_range(structural_scores, 0.95)
+
+    # Combine scores and send to file
     with open(alignme_scores_file, "w") as ofile:
         for pair in pairwise_array:
-            try:
-                score = score_alignme("%s/ALIGNME_FILES/%s-%s.prf" % (out_dir, pair[0], pair[1]))
-                ofile.write("%s\t%s\t%s\n" % (pair[0], pair[1], score))
-            except FileNotFoundError:
-                pass
+            final_score = structural_scores["%s-%s" % (pair[0], pair[1])] + subs_mat_scores["%s-%s" % (pair[0], pair[1])]
+            final_score /= 2
+            ofile.write("%s\t%s\t%s\n" % (pair[0], pair[1], final_score))
