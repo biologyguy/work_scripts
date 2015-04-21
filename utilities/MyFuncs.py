@@ -11,6 +11,19 @@ from re import sub
 import string
 from random import choice
 
+
+class Timer():
+    def __init__(self):
+        self.current_time = round(time())
+
+    def start(self):
+        self.current_time = round(time())
+        return
+
+    def end(self):
+        return pretty_time(round(time()) - self.current_time)
+
+
 # maybe use curses library in the future to extend this for multi-line printing
 class DynamicPrint():
     def __init__(self, out_type=stdout):
