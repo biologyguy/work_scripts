@@ -13,9 +13,8 @@ import argparse
 from multiprocessing import Lock
 from subprocess import Popen
 from math import log
-from time import time
-from MyFuncs import run_multicore_function, TempDir, pretty_time
-from SeqBuddy import SeqBuddy, delete_metadata
+from MyFuncs import run_multicore_function, TempDir, DynamicPrint, SafetyValve, Timer
+from SeqBuddy import SeqBuddy, delete_metadata, clean_seq
 from pssm import PSSM
 from Bio import SeqIO, AlignIO
 from Bio.SubsMat import MatrixInfo, SeqMat
@@ -39,42 +38,46 @@ def clean_up(path_list):
 
 
 def octopus(seq_obj, args):
-    valve = 1
-    # There is a race condition (I think) that that causes a disruption in _tmp_dir.subdir(). It's infrequent
-    # enough that I can just iterate until Octopus executes successfully.
+    blastdb, _tmp_dir = args
+    _tmp_dir = _tmp_dir.subdir()
+    with open("%s/%s.fa" % (_tmp_dir, seq_obj.id), "w") as _ofile:
+        SeqIO.write(seq_obj, _ofile, "fasta")
+
+    with open(_tmp_dir + "/NameFile.txt", "w") as _ofile:
+        seq_id = seq_obj.id.split(".")
+        _ofile.write(seq_id[0] + "\n")
+
+    # Sometimes octopus fails for some unknown reason. Try again if it does.
+    valve = SafetyValve(5)
     while True:
-        blastdb, _tmp_dir = args
-        try:
-            _tmp_dir = _tmp_dir.subdir()
-            with open("%s/%s.fa" % (_tmp_dir, seq_obj.id), "w") as _ofile:
-                SeqIO.write(seq_obj, _ofile, "fasta")
+        Popen("bloctopus %s/NameFile.txt %s %s %s %s %s %s -P > /dev/null 2>&1" %
+              (_tmp_dir, _tmp_dir, out_dir, shutil.which("blastall"), shutil.which("blastpgp"), blastdb,
+               shutil.which("makemat")), shell=True).wait()
 
-            with open(_tmp_dir + "/NameFile.txt", "w") as _ofile:
-                seq_id = seq_obj.id.split(".")
-                _ofile.write(seq_id[0] + "\n")
-
-            Popen("bloctopus %s/NameFile.txt %s %s %s %s %s %s -P > /dev/null 2>&1" %
-                  (_tmp_dir, _tmp_dir, out_dir, shutil.which("blastall"), shutil.which("blastpgp"), blastdb,
-                   shutil.which("makemat")), shell=True).wait()
-
-            Popen("octopus %s/NameFile.txt %s/PSSM_PRF_FILES %s/RAW_PRF_FILES %s -N > /dev/null 2>&1" %
-                  (_tmp_dir, out_dir, out_dir, out_dir), shell=True).wait()
-
-            # do a little reformatting of the .nnprf files --> Delete everything after the first group of values, before END 1
-            with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "r") as _ifile:
-                nnprf = _ifile.read()
-
-            with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "w") as _ofile:
-                regex = re.match(r'.+?(?=END)', nnprf, re.DOTALL)
-                _ofile.write(regex.group(0))
+        if os.path.isfile("%s/PSSM_PRF_FILES/%s.prf" % (out_dir, seq_obj.id)) and \
+                os.path.isfile("%s/RAW_PRF_FILES/%s.prf" % (out_dir, seq_obj.id)):
             break
+        else:
+            valve.step("%s at bloctopus" % seq_obj.id)
 
-        except FileNotFoundError:
-            print("\nOops %s: %s" % (seq_obj.id, valve))
-            valve += 1
-            if valve == 20:
-                raise SystemError("\nError: %s failed during Octopus step." % seq_obj.id)
-            continue
+    valve.global_reps = 5
+    while True:
+        Popen("octopus %s/NameFile.txt %s/PSSM_PRF_FILES %s/RAW_PRF_FILES %s -N > /dev/null 2>&1" %
+              (_tmp_dir, out_dir, out_dir, out_dir), shell=True).wait()
+
+        if os.path.isfile("%s/NN_PRF_FILES/%s.nnprf" % (out_dir, seq_obj.id)) and \
+                os.path.isfile("%s/%s.top" % (out_dir, seq_obj.id)):
+            break
+        else:
+            valve.step("%s at octopus" % seq_obj.id)
+
+    # do a little reformatting of the .nnprf files --> Delete everything after the first group of values, before END 1
+    with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "r") as _ifile:
+        nnprf = _ifile.read()
+
+    with open("%s/%s.nnprf" % (nnprf_dir, seq_obj.id), "w") as _ofile:
+        regex = re.match(r'.+?(?=END)', nnprf, re.DOTALL)
+        _ofile.write(regex.group(0))
 
     return
 
@@ -155,13 +158,10 @@ def alignme(combination):
           "-above_threshold_gap_extension_penalty %s -termini_gap_opening_penalty %s "
           "-termini_gap_extension_penalty %s -thresholds_for_penalties %s" % strings, shell=True).wait()
 
-    # AlignMe makes an error while writing alignment files, so repair the damage...
+    # AlignMe makes an error while writing alignment files if there is a dash (-) in the name, so repair the damage...
     with open("%s/%s-%s.aln" % (alignme_dir, combination[0], combination[1]), 'r') as _ifile:
-        _output = ''
-        for line in _ifile:
-            if line[0] == " ":
-                line = line[1:]
-            _output += line
+        _output = _ifile.read()
+        _output = re.sub("(^[A-Za-z]{3}\-.* )", r"\1 ", _output, flags=re.MULTILINE)
 
     # AlignMe also writes an extra line to .aln files if the sequence's length is exactly divisible by line length. This
     # breaked BioPython...
@@ -288,6 +288,31 @@ def score_alignme(alignme_file):  # This is the .prf file
     return round((tally / normalizing_len) / 4, 5)  # The '4' is for the number of columns being compared
 
 
+def mc_subs_mat_scores(_pair):
+            align_file = "%s/ALIGNME_FILES/%s-%s.aln" % (out_dir, _pair[0], _pair[1])
+
+            _align = SeqBuddy(align_file, "clustal")
+
+            _align = _align.records
+            subj_align = str(_align[0].seq)
+            query_align = str(_align[1].seq)
+
+            subj_top = str(top_seqs[_pair[0]].seq)
+            query_top = str(top_seqs[_pair[1]].seq)
+
+            output = alignment_sub_mat_score(subj_top, query_top, subj_align, query_align)
+            with stdout_lock:
+                with open(subs_mat_scores_file, "a") as _ofile:
+                    _ofile.write("%s-%s\t%s\n" % (_pair[0], _pair[1], output["score"]))
+            return
+
+
+def mc_structural_scores(_pair):
+            score = score_alignme("%s/ALIGNME_FILES/%s-%s.prf" % (out_dir, _pair[0], _pair[1]))
+            with stdout_lock:
+                with open(structural_scores_file, "a") as _ofile:
+                    _ofile.write("%s-%s\t%s\n" % (_pair[0], _pair[1], score))
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="Alignme_run", formatter_class=argparse.ArgumentDefaultsHelpFormatter,
                                      description="")
@@ -299,23 +324,29 @@ if __name__ == '__main__':
     parser.add_argument("-b", "--base_name", action="store", help="Specify the prefix for output.")
     parser.add_argument("-o", "--out_dir", default="./Alignme_output", action="store",
                         help="Where should output files go?")
+    parser.add_argument("-r", "--resume", help="Pick up at specific step a run left off, if possible.", choices=['octopus', 'top_file', 'mafft', 'pssm', 'psipred', 'alignme', 'final_tally'])
 
     in_args = parser.parse_args()
 
     temporary_directory = TempDir()
-
+    timer = Timer()
     seqbuddy = []
     seq_set = ""
 
+    print("\nPreparing SeqBuddy objects")
     for seq_set in in_args.input_sequences:
         seq_set = SeqBuddy(seq_set)
         seqbuddy += seq_set.records
 
     seqbuddy = SeqBuddy(seqbuddy)
     seqbuddy = delete_metadata(seqbuddy)
+    seqbuddy = clean_seq(seqbuddy)
+
+    expendable_dict = seqbuddy.to_dict()  # used during the creation of pairwise_array
+    print("    ---> DONE")
 
     if not in_args.base_name:
-        base_name = "AlignMe_input"
+        base_name = "Input"
     else:
         base_name = in_args.base_name
 
@@ -337,124 +368,155 @@ if __name__ == '__main__':
             os.makedirs(next_dir)
     
     # Output files
-    alignme_scores_file = "%s/%s_scores.csv" % (out_dir, base_name)
+    alignme_scores_file = "%s/%s_final_scores.csv" % (out_dir, base_name)
     top_file = "%s/%s_top.fasta" % (out_dir, base_name)
     seq_file = "%s/%s.fasta" % (out_dir, base_name)
+    subs_mat_scores_file = "%s/%s_subsmat.csv" % (out_dir, base_name)
+    structural_scores_file = "%s/%s_structural.csv" % (out_dir, base_name)
 
-    with open(seq_file, "w") as ofile:
-        SeqIO.write(seqbuddy.records, ofile, "fasta")
+    if not in_args.resume:
+        with open(seq_file, "w") as ofile:
+            SeqIO.write(seqbuddy.records, ofile, "fasta")
 
-    # unlink top and trim files if they already exist...
-    # These files are opened in append mode "a", so important to start with empty file
-    clean_up([top_file])
-    top_file_handle = open(top_file, "a")
+        # unlink top file if it already exist...
+        # These files are opened in append mode "a", so important to start with empty file
+        clean_up([top_file])
 
     # multicore stuff
     stdout_lock = Lock()
     
     # Run octopus
-    print("Execute Octopus on %s")
-    run_multicore_function(seqbuddy.records, octopus, ["/usr/local/blastdbs/species_protein/Hydra_magnipapillata",
-                                                       temporary_directory])
-    clean_up(["%s/PSSM_PRF_FILES" % out_dir, "%s/RAW_PRF_FILES" % out_dir, "%s/exec_times-bloctopus.txt" % out_dir,
-              "%s/exec_times-octopus.txt" % out_dir])
+    print("\nExecuting Octopus")
+    if not in_args.resume or in_args.resume == "octopus":
+        in_args.resume = False
+        run_multicore_function(seqbuddy.records, octopus, ["/usr/local/blastdbs/pannexins",
+                                                           temporary_directory])
+        clean_up(["%s/PSSM_PRF_FILES" % out_dir, "%s/RAW_PRF_FILES" % out_dir, "%s/exec_times-bloctopus.txt" % out_dir,
+                  "%s/exec_times-octopus.txt" % out_dir])
 
     # process top files
-    print("\nProcess top files")
-    for rec in seqbuddy.records:
-        top_in_file = "%s/%s.top" % (out_dir, rec.id)
-        with open(top_in_file, "r") as ifile:
-            top_file_handle.write(ifile.read())
-        clean_up([top_in_file])
+    if not in_args.resume or in_args.resume == "top_file":
+        in_args.resume = False
+        timer.start()
+        print("\nProcess top files")
+        top_file_handle = open(top_file, "a")
+        for rec in seqbuddy.records:
+            top_in_file = "%s/%s.top" % (out_dir, rec.id)
+            with open(top_in_file, "r") as ifile:
+                top_file_handle.write(ifile.read())
+            clean_up([top_in_file])
 
-    top_file_handle.close()
-    print("  ---> DONE")
+        top_file_handle.close()
+        print("  ---> DONE: %s" % timer.end())
 
     # create MSAs with MAFFT
-    mafft_time = round(time())
-    mafft_command = "einsi --thread -1 --quiet %s > %s/%s_einsi.fasta" % (seq_file, out_dir, base_name)
-    print("\nMAFFT alignment running")
-    Popen(mafft_command, shell=True).wait()
-    mafft_time = pretty_time(round(time()) - mafft_time)
-    print("  --> DONE: %s" % mafft_time)
+    if not in_args.resume or in_args.resume == "mafft":
+        in_args.resume = False
+        timer.start()
+        mafft_command = "einsi --thread -1 --quiet %s > %s/%s_einsi.fasta" % (seq_file, out_dir, base_name)
+        print("\nMAFFT alignment running")
+        Popen(mafft_command, shell=True).wait()
+        print("  --> DONE: %s" % timer.end())
 
     # set up all-by-all dict
+    print("\nCreating all-by-all pairwise dictionary")
+    timer.start()
+    printer = DynamicPrint()
+    dict_size = int(((len(seqbuddy.records) ** 2) - len(seqbuddy.records)) / 2)
+    counter = 0
     pairwise_array = []
     for x in seqbuddy.records:
-        for y in seqbuddy.records:
-            if (x.id, y.id) in pairwise_array or (y.id, x.id) in pairwise_array or x.id == y.id:
-                continue
-            else:
-                pairwise_array.append((x.id, y.id))
-    
+        del expendable_dict[x.id]
+        for y in expendable_dict:
+                pairwise_array.append((x.id, expendable_dict[y].id))
+                counter += 1
+                printer.write("%s of %s" % (counter, dict_size))
+
+    print("\n    ---> DONE: %s" % timer.end())
+
+    print("\nReading in top files")
+    timer.start()
     with open(top_file, "r") as file:
         top_seqs = SeqIO.to_dict(SeqIO.parse(file, "fasta"))
-    
+    print("    ---> DONE: %s" % timer.end())
+
+    print("\nReading in multiple sequence alignment")
+    timer.start()
     with open("%s/%s_einsi.fasta" % (out_dir, base_name), "r") as seq_file:
         einsi_seqs = SeqIO.to_dict(SeqIO.parse(seq_file, "fasta"))
-    
+    print("    ---> DONE: %s" % timer.end())
+
     # generate PSSMs -- differentiates between transmembrane and non-TM regions for
     # BLOSUM62 and PHAT respectively (implemented in the PSSM class).
     align = AlignIO.read("%s/%s_einsi.fasta" % (out_dir, base_name), "fasta")
-    pssm = PSSM(align)
-    pssm.name = base_name
-    pssm.alignment_membranes(top_file)
-    pssm.build_pssm()
-    pssm.write("%s/%s.pssm" % (out_dir, base_name))
+    if not in_args.resume or in_args.resume == "pssm":
+        in_args.resume = False
+        pssm = PSSM(align)
+        pssm.name = base_name
+        pssm.alignment_membranes(top_file)
+        pssm.build_pssm()
+        pssm.write("%s/%s.pssm" % (out_dir, base_name))
 
-    # create custom pssms for each included sequence by deleting space rows
-    print("\nCreating custom PSSMs for all sequences")
-    with open("%s/%s.pssm" % (out_dir, base_name), "r") as pssm_file:
-        pssm_lines = pssm_file.readlines()
+        # create custom pssms for each included sequence by deleting space rows
+        print("\nCreating custom PSSMs for all sequences")
+        with open("%s/%s.pssm" % (out_dir, base_name), "r") as pssm_file:
+            pssm_lines = pssm_file.readlines()
 
-    run_multicore_function(einsi_seqs, _pssm, [pssm_lines])
+        run_multicore_function(einsi_seqs, _pssm, [pssm_lines])
 
     # Now onto PSI-PRED
-    print("\nExecuting PSI-Pred")
-    run_multicore_function(seqbuddy.records, _psi_pred)
+    if not in_args.resume or in_args.resume == "psipred":
+        in_args.resume = False
+        print("\nExecuting PSI-Pred")
+        run_multicore_function(seqbuddy.records, _psi_pred)
 
     # Run AlignMe on all pairwise combinations
-    print("\nPairwise AlignMe runs:")
-    run_multicore_function(pairwise_array, alignme)
+    if not in_args.resume or in_args.resume == "alignme":
+        in_args.resume = False
+        print("\nPairwise AlignMe runs:")
+        run_multicore_function(pairwise_array, alignme)
 
-    print("\nFinal scoring.")
-    final_process_time = round(time())
-    # Get substitution matrix scores for each alignment
-    subs_mat_scores = {}
-    for pair in pairwise_array:
-        align = SeqBuddy("%s/ALIGNME_FILES/%s-%s.aln" % (out_dir, pair[0], pair[1]), "clustal")
-        align = align.records
-        subj_align = str(align[0].seq)
-        query_align = str(align[1].seq)
-
-        subj_top = str(top_seqs[pair[0]].seq)
-        query_top = str(top_seqs[pair[1]].seq)
-
-        output = alignment_sub_mat_score(subj_top, query_top, subj_align, query_align)
-        subs_mat_scores["%s-%s" % (pair[0], pair[1])] = output["score"]
-        # print("%s-%s\t%s\t%s" % (pair[0], pair[1], round(output["score"], 4), output["gaps"]))
-
-    subs_mat_scores = scale_range(subs_mat_scores, 0.95)
-
-    # Score the structural components of all AlignMe runs
-    structural_scores = {}
-    for pair in pairwise_array:
-        try:
-            score = score_alignme("%s/ALIGNME_FILES/%s-%s.prf" % (out_dir, pair[0], pair[1]))
-            structural_scores["%s-%s" % (pair[0], pair[1])] = score
-
-        except FileNotFoundError:
-            print("Error: Failed to find %s/ALIGNME_FILES/%s-%s.prf" % (out_dir, pair[0], pair[1]))
+    # ####################################################
+    if not in_args.resume or in_args.resume == "final_tally":
+        in_args.resume = False
+        print("\nCompile substitution matrix scores.")
+        # Get substitution matrix scores for each alignment
+        with open(subs_mat_scores_file, "w"):
             pass
 
-    structural_scores = scale_range(structural_scores, 0.95)
+        run_multicore_function(pairwise_array, mc_subs_mat_scores)
 
-    # Combine scores and send to file
-    with open(alignme_scores_file, "w") as ofile:
-        for pair in pairwise_array:
-            final_score = structural_scores["%s-%s" % (pair[0], pair[1])] + subs_mat_scores["%s-%s" % (pair[0], pair[1])]
-            final_score /= 2
-            ofile.write("%s\t%s\t%s\n" % (pair[0], pair[1], final_score))
+        subs_mat_scores_handle = open(subs_mat_scores_file, "r")
+        subs_mat_scores = {}
+        for line in subs_mat_scores_handle:
+            line = line.strip().split("\t")
+            subs_mat_scores[line[0]] = float(line[1])
 
-    final_process_time = pretty_time(round(time()) - final_process_time)
-    print("  --> DONE: %s" % final_process_time)
+        subs_mat_scores_handle.close()
+        subs_mat_scores = scale_range(subs_mat_scores, 0.95)
+
+        # ##########################################
+        # Score the structural components of all AlignMe runs
+        print("\nCompile structural scores.")
+        with open(structural_scores_file, "w"):
+            pass
+
+        run_multicore_function(pairwise_array, mc_structural_scores)
+        structural_scores_handle = open(structural_scores_file, "r")
+        structural_scores = {}
+
+        for line in structural_scores_handle:
+            line = line.strip().split("\t")
+            structural_scores[line[0]] = float(line[1])
+
+        structural_scores = scale_range(structural_scores, 0.95)
+
+        # Combine scores and send to file
+        print("\nPrinting final scores...")
+        timer.start()
+        with open(alignme_scores_file, "w") as ofile:
+            for pair in pairwise_array:
+                final_score = structural_scores["%s-%s" % (pair[0], pair[1])] + subs_mat_scores["%s-%s" % (pair[0], pair[1])]
+                final_score /= 2
+                ofile.write("%s\t%s\t%s\n" % (pair[0], pair[1], final_score))
+        print("    ---> DONE: %s" % timer.end())
