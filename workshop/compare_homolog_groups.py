@@ -28,6 +28,7 @@ class Clusters():
 
         self.clusters = self.input.strip().split("group")[1:]
         self.clusters = [[y for y in x.strip().split(" ")[1:]] for x in self.clusters]
+        self.clusters.reverse()
         self.size = 0.
         for group in self.clusters:
             self.size += len(group)
