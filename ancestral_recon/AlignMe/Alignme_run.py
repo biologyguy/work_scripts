@@ -13,7 +13,7 @@ import argparse
 from multiprocessing import Lock
 from subprocess import Popen
 from math import log
-from MyFuncs import run_multicore_function, TempDir, DynamicPrint, SafetyValve, Timer
+from MyFuncs import run_multicore_function, TempDir, DynamicPrint, SafetyValve, Timer, normalize
 from SeqBuddy import SeqBuddy, delete_metadata, clean_seq
 from pssm import PSSM
 from Bio import SeqIO, AlignIO
@@ -22,6 +22,14 @@ from Bio.SubsMat import MatrixInfo, SeqMat
 
 PHAT = SeqMat(MatrixInfo.phat75_73)
 BLOSUM62 = SeqMat(MatrixInfo.blosum62)
+ambiguous_X = {"A": 0, "R": -1, "N": -1, "D": -1, "C": -2, "Q": -1, "E": -1, "G": -1, "H": -1, "I": -1, "L": -1,
+               "K": -1, "M": -1, "F": -1, "P": -2, "S": 0, "T": 0, "W": -2, "Y": -1, "V": -1}
+
+for aa in ambiguous_X:
+    pair = sorted((aa, "X"))
+    pair = tuple(pair)
+    PHAT[pair] = ambiguous_X[aa]
+    BLOSUM62[pair] = ambiguous_X[aa]
 
 
 def clean_up(path_list):
@@ -181,39 +189,6 @@ def bit_score(raw_score):
 
     bits = ((bit_lambda * raw_score) - (log(bit_k_value))) / log(2)
     return bits
-
-
-def scale_range(data, percentile=1.0):
-    if 0. > percentile > 1.0:
-        raise ValueError("scale_range() percentile parameter should be between 0.5 and 1.0")
-
-    if percentile < 0.5:
-        percentile = 1 - percentile
-
-    max_limit = round(len(data) * percentile) - 1
-    min_limit = -1 * (max_limit + 1)
-
-    if type(data) == dict:
-        sorted_data = sorted([data[key] for key in data])
-        _max = sorted_data[max_limit]
-        _min = sorted_data[min_limit]
-        data_range = _max - _min
-        for key in data:
-            data[key] = (data[key] - _min) / data_range
-            data[key] = 1. if data[key] > 1. else data[key]
-            data[key] = 0. if data[key] < 0. else data[key]
-
-    else:
-        sorted_data = sorted(data)
-        _max = sorted_data[max_limit]
-        _min = sorted_data[min_limit]
-        data_range = _max - _min
-        for i in range(len(data)):
-            data[i] = (data[i] - _min) / data_range
-            data[i] = 1. if data[i] > 1. else data[i]
-            data[i] = 0. if data[i] < 0. else data[i]
-
-    return data
 
 
 def alignment_sub_mat_score(_subj_top, _query_top, _subj_align, _query_align):
@@ -407,7 +382,7 @@ if __name__ == '__main__':
             clean_up([top_in_file])
 
         top_file_handle.close()
-        print("  ---> DONE: %s" % timer.end())
+        print("    ---> DONE: %s" % timer.end())
 
     # create MSAs with MAFFT
     if not in_args.resume or in_args.resume == "mafft":
@@ -416,7 +391,7 @@ if __name__ == '__main__':
         mafft_command = "einsi --thread -1 --quiet %s > %s/%s_einsi.fasta" % (seq_file, out_dir, base_name)
         print("\nMAFFT alignment running")
         Popen(mafft_command, shell=True).wait()
-        print("  --> DONE: %s" % timer.end())
+        print("    ---> DONE: %s" % timer.end())
 
     # set up all-by-all dict
     print("\nCreating all-by-all pairwise dictionary")
@@ -476,7 +451,6 @@ if __name__ == '__main__':
         print("\nPairwise AlignMe runs:")
         run_multicore_function(pairwise_array, alignme)
 
-    # ####################################################
     if not in_args.resume or in_args.resume == "final_tally":
         in_args.resume = False
         print("\nCompile substitution matrix scores.")
@@ -493,9 +467,8 @@ if __name__ == '__main__':
             subs_mat_scores[line[0]] = float(line[1])
 
         subs_mat_scores_handle.close()
-        subs_mat_scores = scale_range(subs_mat_scores, 0.95)
+        subs_mat_scores = normalize(subs_mat_scores)
 
-        # ##########################################
         # Score the structural components of all AlignMe runs
         print("\nCompile structural scores.")
         with open(structural_scores_file, "w"):
@@ -509,7 +482,7 @@ if __name__ == '__main__':
             line = line.strip().split("\t")
             structural_scores[line[0]] = float(line[1])
 
-        structural_scores = scale_range(structural_scores, 0.95)
+        structural_scores = normalize(structural_scores)
 
         # Combine scores and send to file
         print("\nPrinting final scores...")
