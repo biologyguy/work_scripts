@@ -3,16 +3,22 @@
 # Created on: Apr 22 2015 
 
 """
-DESCRIPTION OF PROGRAM
+Generate a similarity metric between two homolog groups files
+
+- Split files up into list of groups, and each group is itself a list of ids
+- Iterate over the subject list, comparing each group against the groups in the query list
+    - Count the number of matches between groups
+    - If one or more sequences in subject group are found in query group, divide the number of matching ids by the total
+    size of both the query and subject
+    - Sum the scores for all matching query groups
+    - Stop iterating through query once all subject ids have been identified
+    - Final tally for each subject group is standardized against the size of the total size of all groups in subject
+    - Final score is the sum of all tallies from subject/query search, between max value of 1 and min of 0
+- The metric is not symmetric between subject and query, so for a true comparison run compare() in both directions and
+take the average (not currently implemented).
 """
 
-#import sys
-#import os
-#import re
-#import shutil
 import MyFuncs
-#import SeqBuddy
-#import argparse
 
 
 class Clusters():
@@ -36,6 +42,8 @@ class Clusters():
             tally = 0.
             len_subj = len(subj)
 
+            # This is quite inefficient, bc it iterates from the top of query list every time... Need a way to better
+            # manage search.
             for query in query_clusters.clusters:
                 matches = self.num_matches(subj, query)
                 if not matches:
@@ -59,39 +67,18 @@ class Clusters():
 
 
 if __name__ == '__main__':
-    # parser = argparse.ArgumentParser(prog="compare_homolog_groups", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    # parser.add_argument("positional_arg1", help="", action="store")
-    # parser.add_argument("-t", "--true", help="", action="store_true", default=False)
-    # parser.add_argument("-c", "--choice", help="", type=str, choices=["", ""], default=False)
-    # parser.add_argument("-m", "--multi_arg", nargs="+", help="", default=[])
-    # in_args = parser.parse_args()
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="compare_homolog_groups", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("subject", help="Input file 1", action="store")
+    parser.add_argument("query", help="Input file 2", action="store")
+
+    in_args = parser.parse_args()
 
     timer = MyFuncs.Timer()
     printer = MyFuncs.DynamicPrint()
 
-
-    groups1 = Clusters("test_files/e_10_groups.txt.bak")
-    groups2 = Clusters("test_files/e_10-5_groups.txt.bak")
-    groups3 = Clusters("test_files/test_groups3.txt")
+    groups1 = Clusters(in_args.subject)
+    groups2 = Clusters(in_args.query)
 
     print("Score: %s\n%s" % (groups1.compare(groups2), timer.end()))
-
-    """
-    g2_score = 0.
-    for subj in groups2:
-        best = 0.
-        len_subj = len(subj)
-
-        for query in groups1:
-            matches = num_matches(subj, query)
-            if not matches:
-                continue
-            else:
-                score = (matches * 2.) / (len(subj) + len(query))
-                best = score if score > best else best
-                len_subj -= matches
-
-                if len_subj == 0:
-                    g2_score += best / g1_size
-                    break
-    """
