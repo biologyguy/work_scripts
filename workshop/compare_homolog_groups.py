@@ -6,43 +6,56 @@
 DESCRIPTION OF PROGRAM
 """
 
-import sys
-import os
-import re
-import shutil
+#import sys
+#import os
+#import re
+#import shutil
 import MyFuncs
-import SeqBuddy
-import argparse
+#import SeqBuddy
+#import argparse
 
 
-class NewClass():
-    """DESCRIPTION OF CLASS"""
-    def __init__(self):
-        self.x = 1
+class Clusters():
+    def __init__(self, path):
+        with open(path, "r") as ifile:
+            self.input = ifile.read()
 
-    def class_def(self):
-        self.x = 1
-        return self.x
+        self.clusters = self.input.strip().split("group")[1:]
+        self.clusters = [[y for y in x.strip().split(" ")[1:]] for x in self.clusters]
+        self.size = 0.
+        for group in self.clusters:
+            self.size += len(group)
+        self.printer = MyFuncs.DynamicPrint()
 
+    def compare(self, query_clusters):
+        score = 0.
+        counter = 1
+        for subj in self.clusters:
+            printer.write("Cluster %s of %s" % (counter, len(self.clusters)))
+            counter += 1
+            tally = 0.
+            len_subj = len(subj)
 
-def parse_clusters(file_handle):
-    """
-    Create a dictionary with indices for every sequence, containing all other sequences in their group
-    """
-    clusters = {}
-    for group in file_handle:
-        genes = group.split("\t")
-        for gene in genes:
-            clusters[gene.strip()] = [x.strip() for x in genes]
-    return clusters
+            for query in query_clusters.clusters:
+                matches = self.num_matches(subj, query)
+                if not matches:
+                    continue
+                else:
+                    tally += (matches * 2.) / (len(subj) + len(query))
+                    len_subj -= matches
+                    if len_subj == 0:
+                        score += tally * (len(subj) / self.size)
+                        break
+        print("")
+        return score
 
-
-def num_matches(_subj, _query):
-    count = 0.
-    for next_item in _subj:
-        if next_item in _query:
-            count += 1
-    return count if count > 0 else None
+    @staticmethod
+    def num_matches(_subj, _query):
+        count = 0.
+        for next_item in _subj:
+            if next_item in _query:
+                count += 1
+        return count if count > 0 else None
 
 
 if __name__ == '__main__':
@@ -53,44 +66,17 @@ if __name__ == '__main__':
     # parser.add_argument("-m", "--multi_arg", nargs="+", help="", default=[])
     # in_args = parser.parse_args()
 
+    timer = MyFuncs.Timer()
     printer = MyFuncs.DynamicPrint()
 
-    with open("test_files/e_10_groups.txt", "r") as ifile:
-        groups1 = ifile.read()
-        groups1 = groups1.split("group")
-        groups1 = [[y for y in x.strip().split(" ")[1:]] for x in groups1]
 
-    with open("test_files/e_10-5_groups.txt", "r") as ifile:
-        groups2 = ifile.read()
-        groups2 = groups2.split("group")
-        groups2 = [[y for y in x.strip().split(" ")[1:]] for x in groups2]
+    groups1 = Clusters("test_files/e_10_groups.txt.bak")
+    groups2 = Clusters("test_files/e_10-5_groups.txt.bak")
+    groups3 = Clusters("test_files/test_groups3.txt")
 
-    g1_size = 0.
-    for group in groups1:
-        g1_size += len(group)
+    print("Score: %s\n%s" % (groups1.compare(groups2), timer.end()))
 
-    g2_size = 0.
-    for group in groups2:
-        g2_size += len(group)
-
-    g1_score = 0.
-    for subj in groups1:
-        best = 0.
-        len_subj = len(subj)
-
-        for query in groups2:
-            matches = num_matches(subj, query)
-            if not matches:
-                continue
-            else:
-                score = (matches * 2.) / (len(subj) + len(query))
-                best = score if score > best else best
-                len_subj -= matches
-
-                if len_subj == 0:
-                    g1_score += best / g1_size
-                    break
-
+    """
     g2_score = 0.
     for subj in groups2:
         best = 0.
@@ -108,5 +94,4 @@ if __name__ == '__main__':
                 if len_subj == 0:
                     g2_score += best / g1_size
                     break
-
-    print("G1: %s, G2: %s" % (g1_score, g2_score))
+    """
