@@ -4,6 +4,10 @@
 
 """
 Run all-by-all AlignMe
+
+The program is a pipeline with 7 distinct steps, each of which can be the 'start' point of the run using the --resume/-r
+parameter from the command line: 'octopus', 'top_file', 'mafft', 'pssm', 'psipred', 'alignme', or 'final_tally'.
+Note that each step depends on the proper input from previous steps.
 """
 
 import os
@@ -361,8 +365,8 @@ if __name__ == '__main__':
     stdout_lock = Lock()
     
     # Run octopus
-    print("\nExecuting Octopus")
     if not in_args.resume or in_args.resume == "octopus":
+        print("\nExecuting Octopus")
         in_args.resume = False
         run_multicore_function(seqbuddy.records, octopus, ["/usr/local/blastdbs/pannexins",
                                                            temporary_directory])
@@ -371,9 +375,9 @@ if __name__ == '__main__':
 
     # process top files
     if not in_args.resume or in_args.resume == "top_file":
+        print("\nProcess top files")
         in_args.resume = False
         timer.start()
-        print("\nProcess top files")
         top_file_handle = open(top_file, "a")
         for rec in seqbuddy.records:
             top_in_file = "%s/%s.top" % (out_dir, rec.id)
@@ -386,10 +390,10 @@ if __name__ == '__main__':
 
     # create MSAs with MAFFT
     if not in_args.resume or in_args.resume == "mafft":
+        print("\nMAFFT alignment running")
         in_args.resume = False
         timer.start()
         mafft_command = "einsi --thread -1 --quiet %s > %s/%s_einsi.fasta" % (seq_file, out_dir, base_name)
-        print("\nMAFFT alignment running")
         Popen(mafft_command, shell=True).wait()
         print("    ---> DONE: %s" % timer.end())
 
