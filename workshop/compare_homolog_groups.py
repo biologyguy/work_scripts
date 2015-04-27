@@ -22,12 +22,12 @@ import MyFuncs
 
 
 class Clusters():
-    def __init__(self, path):
+    def __init__(self, path, group_split="\n", taxa_split="\t"):
         with open(path, "r") as ifile:
             self.input = ifile.read()
 
-        self.clusters = self.input.strip().split("group")[1:]
-        self.clusters = [[y for y in x.strip().split(" ")[1:]] for x in self.clusters]
+        self.clusters = self.input.strip().split(group_split)
+        self.clusters = [[y for y in x.strip().split(taxa_split)] for x in self.clusters]
         self.clusters.reverse()
         self.size = 0.
         for group in self.clusters:
@@ -44,7 +44,7 @@ class Clusters():
             len_subj = len(subj)
 
             # This is quite inefficient, bc it iterates from the top of query list every time... Need a way to better
-            # manage search.
+            # manage search if this ever starts to be used regularly.
             for query in query_clusters.clusters:
                 matches = self.num_matches(subj, query)
                 if not matches:
@@ -73,13 +73,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="compare_homolog_groups", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("subject", help="Input file 1", action="store")
     parser.add_argument("query", help="Input file 2", action="store")
+    parser.add_argument("--group_split", "-gs", action="store", default="\n",
+                        help="specify the delimiting string between groups")
+    parser.add_argument("--taxa_split", "-ts", action="store", default="\t",
+                        help="specify the delimiting string between taxa")
 
     in_args = parser.parse_args()
 
     timer = MyFuncs.Timer()
     printer = MyFuncs.DynamicPrint()
 
-    groups1 = Clusters(in_args.subject)
+    groups1 = Clusters(in_args.subject, in_args.group_split, in_args.taxa_split)
     groups2 = Clusters(in_args.query)
 
     print("Score: %s\n%s" % (groups1.compare(groups2), timer.end()))
