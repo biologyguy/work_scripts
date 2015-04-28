@@ -72,9 +72,10 @@ class Variable():
 
 
 class _Chain():
-    def __init__(self, variables, function):
+    def __init__(self, variables, function, params=False):
         self.variables = variables
         self.function = function
+        self.params = params
         self.heat = 0.32
         self.current_raw_score = 0.
         self.proposed_raw_score = 0.
@@ -96,7 +97,7 @@ class _Chain():
                 func_args.append(variable.draw_value)
                 output += " %s = %s," % (variable.name, variable.current_value)
 
-            score = function(func_args)
+            score = self.function(func_args) if not self.params else self.function(func_args, self.params)
             self.score_history.append(score)
             output += " Score = %s" % score
             print(output)
@@ -120,7 +121,7 @@ class _Chain():
             variable.draw_new_value()
             func_args.append(variable.draw_value)
 
-        self.proposed_raw_score = self.function(func_args)
+        self.proposed_raw_score = self.function(func_args) if not self.params else self.function(func_args, self.params)
         if len(self.score_history) >= 1000:
             self.score_history.pop(0)
 
@@ -175,7 +176,7 @@ class _Chain():
 
 
 class MCMCMC():
-    def __init__(self, variables, function, steps=10000, sample_rate=100, num_chains=3,
+    def __init__(self, variables, function, params=False, steps=10000, sample_rate=100, num_chains=3,
                  outfile='./mcmcmc_out.csv', burn_in=100):
 
         self.global_variables = variables
@@ -190,7 +191,7 @@ class MCMCMC():
             heading += "result\n"
             ofile.write(heading)
 
-        self.chains = [_Chain(deepcopy(self.global_variables), function) for _ in range(num_chains)]
+        self.chains = [_Chain(deepcopy(self.global_variables), function, params=params) for _ in range(num_chains)]
         self.best = {"score": 0., "variables": {x.name: 0. for x in variables}}
 
         # Set a cold chain. The cold chain should always be set at index 0, even if a chain swap occurs
@@ -210,8 +211,9 @@ class MCMCMC():
         """
         def mc_step_run(_chain, args):
             _func_args, out_path = args
+            score = _chain.function(func_args) if not _chain.params else _chain.function(func_args, _chain.params)
             with open(out_path, "w") as ofile:
-                ofile.write(str(_chain.function(_func_args)))
+                ofile.write(str(score))
             return
 
         def step_parse(_chain):
