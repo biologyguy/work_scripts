@@ -2,12 +2,6 @@
 # -*- coding: utf-8 -*-
 # Created on: Mar 4 2015 
 
-"""
-Selection criteria:
-- Market cap of > $250M
-- Earnings report more than 2 weeks early
-"""
-
 import sys
 import re
 import requests
@@ -15,6 +9,10 @@ from bs4 import BeautifulSoup
 import time
 import datetime
 import MyFuncs
+
+MIN_MARKET_CAP = 250000000.  # $250M
+MIN_DAYS_EARLY = 15
+MIN_DAYS_LATE = 17
 
 
 def timestamp(date_string):
@@ -46,7 +44,7 @@ def company_info(tablerows):
         _company_info = columns[1].a.getText()
         ticker = re.search("\((.*)\)", _company_info).group(1)
         market_cap = re.search("\$[0-9]*\.*[0-9]*[A-Z]*|n/a", _company_info).group(0)
-        if market_cap == "n/a" or convert_value(market_cap) < 250000000.:
+        if market_cap == "n/a" or convert_value(market_cap) < MIN_MARKET_CAP:
             continue
         if columns[0].a:
             release_time = columns[0].a.get('href')
@@ -55,18 +53,18 @@ def company_info(tablerows):
             release_time = "unknown"
 
         report_date = columns[2].getText().strip()
-        last_years_report_date = columns[6].getText().strip()
+        prev_report_date = columns[6].getText().strip()
         expected_eps = columns[4].getText().strip()
         last_years_eps = columns[7].getText().strip()
 
-        if timestamp(last_years_report_date) \
-                and (timestamp(report_date) - timestamp(last_years_report_date) - 31536000 + 1209600 < 0
-                     or timestamp(report_date) - timestamp(last_years_report_date) - 31536000 - 1209600 > 0):
+        if timestamp(prev_report_date) \
+                and (timestamp(report_date) - timestamp(prev_report_date) - 31536000 + (80640 * MIN_DAYS_EARLY) < 0
+                     or timestamp(report_date) - timestamp(prev_report_date) - 31536000 - (80640 * MIN_DAYS_LATE) > 0):
             output += "%s\t" % ticker
             output += "%s\t" % market_cap
             output += "%s\t" % report_date
-            output += "%s\t" % last_years_report_date
-            change = ((timestamp(report_date) - timestamp(last_years_report_date) - 31536000) / -86400)
+            output += "%s\t" % prev_report_date
+            change = ((timestamp(report_date) - timestamp(prev_report_date) - 31536000) / -86400)
             output += "%s\t" % int(change)
             output += "%s\t" % expected_eps
             output += "%s\t" % last_years_eps
