@@ -26,7 +26,6 @@ parser.add_argument('-nm', '--no_main', help="Do not include a __name__ = '__mai
 parser.add_argument('-ni', '--no_import', help="Do not import common packages", action='store_true')
 
 parser.add_argument('-t', '--time', help="Set up a runtime counter", action='store_true')
-parser.add_argument('-am', '--args_in_main', help="Write argpase in the __main__ block", action="store_true")
 parser.add_argument('-b', '--binary_loc', help='Specify the location of your python executable for the hashbang',
                     action='store', default="/usr/bin/env python3")
 parser.add_argument('-e', '--encoding', help='Specify the encoding for the file.', action='store', default="utf-8")
@@ -68,9 +67,6 @@ if not in_args.no_import:
 if in_args.time:
     output += "import timeit\n"
 
-if not in_args.no_argparse and not in_args.args_in_main:
-    output += argparse_block()
-
 if not in_args.no_class:
     output += "\nclass NewClass():\n"
     if not in_args.no_docstrings:
@@ -95,7 +91,7 @@ if not in_args.no_functions:
 if not in_args.no_main:
     output += "if __name__ == '__main__':\n"
 
-    if not in_args.no_argparse and in_args.args_in_main:
+    if not in_args.no_argparse:
         output += argparse_block(4)
 
     if in_args.time:

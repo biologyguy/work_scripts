@@ -3,13 +3,26 @@
 from multiprocessing import Process, cpu_count
 from sys import stdout, exit, stderr
 from time import time
-from math import floor
+from math import floor, ceil
 import os
 from tempfile import TemporaryDirectory
 from shutil import copytree, rmtree
 from re import sub
 import string
 from random import choice
+
+
+class Timer():
+    def __init__(self):
+        self.current_time = round(time())
+
+    def start(self):
+        self.current_time = round(time())
+        return
+
+    def end(self):
+        return pretty_time(round(time()) - self.current_time)
+
 
 # maybe use curses library in the future to extend this for multi-line printing
 class DynamicPrint():
@@ -294,3 +307,36 @@ def walklevel(some_dir, level=1):
         num_sep_this = root.count(os.path.sep)
         if num_sep + level <= num_sep_this:
             del dirs[:]
+
+
+def normalize(data, trim_ends=0.0):
+    if 0. > trim_ends > 1.0:
+        raise ValueError("scale_range() percentile parameter should be between 0.5 and 1.0")
+
+    if trim_ends > 0.5:
+        trim_ends = 1 - trim_ends
+
+    max_limit = ceil(len(data) * (1 - trim_ends)) - 1
+    min_limit = -1 * (max_limit + 1)
+
+    if type(data) == dict:
+        sorted_data = sorted([data[key] for key in data])
+        _max = sorted_data[max_limit]
+        _min = sorted_data[min_limit]
+        data_range = _max - _min
+        for key in data:
+            data[key] = (data[key] - _min) / data_range
+            data[key] = 1. if data[key] > 1. else data[key]
+            data[key] = 0. if data[key] < 0. else data[key]
+
+    else:
+        sorted_data = sorted(data)
+        _max = sorted_data[max_limit]
+        _min = sorted_data[min_limit]
+        data_range = _max - _min
+        for i in range(len(data)):
+            data[i] = (data[i] - _min) / data_range
+            data[i] = 1. if data[i] > 1. else data[i]
+            data[i] = 0. if data[i] < 0. else data[i]
+
+    return data
