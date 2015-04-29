@@ -15,9 +15,7 @@ import numpy as np
 from scipy.stats import norm
 from MyFuncs import DynamicPrint, TempDir, usable_cpu_count
 from copy import deepcopy
-from multiprocessing import cpu_count, Process
-from copy import copy
-import pdb
+from multiprocessing import Process
 
 
 class Variable():
@@ -235,8 +233,9 @@ class MCMCMC():
 
             else:
                 rand_check_val = random.random()
-                accept_check = _chain.gaussian_pdf.pdf(_chain.proposed_score) / \
-                               _chain.gaussian_pdf.pdf(_chain.current_score)
+                prop_gaus = _chain.gaussian_pdf.pdf(_chain.proposed_score)
+                cur_gaus = _chain.gaussian_pdf.pdf(_chain.current_score)
+                accept_check = prop_gaus / cur_gaus
 
                 if accept_check > rand_check_val:
                     _chain.accept()
@@ -335,9 +334,22 @@ class MCMCMC():
                 self.output += "%s\n" % self.chains[0].current_raw_score
                 self.write()
 
-            self.printer.write("%s: %6.3f" % (counter, round(self.chains[0].current_raw_score, 3)))
+            printer_vars = ""
+            for x in self.chains[0].variables:
+                printer_vars += "\t%s: %6.3f" % (x.name, round(x.current_value, 3))
+
+            self.printer.write("%s: %6.3f(%s)" % (counter, round(self.chains[0].current_raw_score, 3), printer_vars))
             counter += 1
         print()
+        return
+
+    def reset_params(self, params):
+        """
+        :param params: list of new input parameters pushed to chains
+        :return: None
+        """
+        for _chain in self.chains:
+            _chain.params = params
         return
 
     def write(self):
