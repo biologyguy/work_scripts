@@ -10,19 +10,21 @@ Generate a similarity metric between two homolog groups files
     - Count the number of matches between groups
     - If one or more sequences in subject group are found in query group, divide the number of matching ids by the total
     size of both the query and subject
-    - Sum the scores for all matching query groups
+    - Weight the score against the total size of the subject group
+    - Sum the weighted scores for all matching query groups
     - Stop iterating through query once all subject ids have been identified
-    - Final tally for each subject group is standardized against the size of the total size of all groups in subject
+    - Final tally for each subject group is weighted against the total size of all groups in subject file
     - Final score is the sum of all tallies from subject/query search, between max value of 1 and min of 0
 - The metric is not symmetric between subject and query, so for a true comparison run compare() in both directions and
 take the average (not currently implemented).
 """
 
 import MyFuncs
+import os
 
 
 class Clusters():
-    def __init__(self, path, group_split="\n", taxa_split="\t"):
+    def __init__(self, path, group_split="\n", taxa_split=" "):
         with open(path, "r") as ifile:
             self.input = ifile.read()
 
@@ -34,11 +36,13 @@ class Clusters():
             self.size += len(group)
         self.printer = MyFuncs.DynamicPrint()
 
-    def compare(self, query_clusters):
+    def compare(self, query_clusters, output_file):
         score = 0.
         counter = 1
+        output = ""
         for subj in self.clusters:
             printer.write("Cluster %s of %s" % (counter, len(self.clusters)))
+            output += "Subj: %s\n" % subj
             counter += 1
             tally = 0.
             len_subj = len(subj)
@@ -50,12 +54,24 @@ class Clusters():
                 if not matches:
                     continue
                 else:
-                    tally += (matches * 2.) / (len(subj) + len(query))
+                    weighted_match = (matches * 2.) / (len(subj) + len(query))
+                    weighted_match *= matches / len(subj)
+                    output += "Query: %s\n%s\n" % (query, weighted_match)
+                    tally += weighted_match
                     len_subj -= matches
                     if len_subj == 0:
-                        score += tally * (len(subj) / self.size)
                         break
+
+            tally *= (len(subj) / self.size)
+            score += tally
+            output += "Score: %s\n\n" % tally
+
         print("")
+
+        if output_file:
+            with open(output_file, "w") as _ofile:
+                _ofile.write(output)
+
         return score
 
     @staticmethod
@@ -75,15 +91,18 @@ if __name__ == '__main__':
     parser.add_argument("query", help="Input file 2", action="store")
     parser.add_argument("--group_split", "-gs", action="store", default="\n",
                         help="specify the delimiting string between groups")
-    parser.add_argument("--taxa_split", "-ts", action="store", default="\t",
+    parser.add_argument("--taxa_split", "-ts", action="store", default=" ",
                         help="specify the delimiting string between taxa")
+    parser.add_argument("--output_file", "-o", help="Specify a location to send an output file.", action="store")
 
     in_args = parser.parse_args()
 
     timer = MyFuncs.Timer()
     printer = MyFuncs.DynamicPrint()
 
-    groups1 = Clusters(in_args.subject, in_args.group_split, in_args.taxa_split)
-    groups2 = Clusters(in_args.query)
+    ofile = None if not in_args.output_file else os.path.abspath(in_args.output_file)
 
-    print("Score: %s\n%s" % (groups1.compare(groups2), timer.end()))
+    groups1 = Clusters(in_args.subject, in_args.group_split, in_args.taxa_split)
+    groups2 = Clusters(in_args.query, in_args.group_split, in_args.taxa_split)
+
+    print("Score: %s\n%s" % (groups1.compare(groups2, ofile), timer.end()))
