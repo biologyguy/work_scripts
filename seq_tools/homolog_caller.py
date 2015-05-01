@@ -111,10 +111,7 @@ def mcmcmc_mcl(args, params):
     return score
 
 
-def homolog_caller(cluster, all_by_all, cluster_dict, rank):
-    # if rank == 2:            # Delete this
-    #    return cluster_dict  # Delete this
-
+def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=1000):
     temp_dir = MyFuncs.TempDir()
 
     all_by_all.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
@@ -123,31 +120,29 @@ def homolog_caller(cluster, all_by_all, cluster_dict, rank):
     gq_var = mcmcmc.Variable("gq", 0.05, 0.95)
 
     try:
-        mcmcmc_factory = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=100, sample_rate=1,
-                                       params=["%s/input.csv" % temp_dir.path, False], outfile="%s/mcmcmc_out.csv" % temp_dir.path)
-    except RuntimeError:  # Happens when mcmcmc fails to find initial chain parameters
-        return cluster_dict
+        mcmcmc_factory = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=steps, sample_rate=1,
+                                       params=["%s/input.csv" % temp_dir.path, False], quiet=True,
+                                       outfile="%s/mcmcmc_out.csv" % temp_dir.path)
+    except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
+        return cluster_list
 
     # Set a 'worst score' that is reasonable for the data set
-    worst_score = 10000000  # arbitrarily large number
+    worst_score = 10000000  # arbitrarily large number to start
     for chain in mcmcmc_factory.chains:
         worst_score = chain.raw_min if chain.raw_min < worst_score else worst_score
 
     mcmcmc_factory.reset_params(["%s/input.csv" % temp_dir.path, worst_score])
 
-    print("\nRunning\n")
     mcmcmc_factory.run()
 
     mcmcmc_output = pd.read_csv("%s/mcmcmc_out.csv" % temp_dir.path, "\t")
 
-    if rank in cluster_dict:
-        cluster_dict[rank].append(cluster)
-    else:
-        cluster_dict[rank] = [cluster]
-
     best_score = max(mcmcmc_output["result"])
     if best_score < cluster.score():
-        return cluster_dict
+        cluster_list.append(cluster)
+        if save:
+            temp_dir.save("%s/group_%s" % (save, rank))
+        return cluster_list
 
     best_df = mcmcmc_output.loc[mcmcmc_output['result'] == best_score]
 
@@ -155,12 +150,10 @@ def homolog_caller(cluster, all_by_all, cluster_dict, rank):
           ("%s/input.csv" % temp_dir.path, best_df[0:1]["gq"].values[0], best_df[0:1]["I"].values[0], temp_dir.path), shell=True, stderr=PIPE).communicate()
 
     mcl_clusters = Clusters("%s/output.groups" % temp_dir.path)
+    _counter = 1
     for clust in mcl_clusters.clusters:
         if len(clust.cluster) in [1, 2]:
-            if rank + 1 in cluster_dict:
-                cluster_dict[rank + 1].append(clust)
-            else:
-                cluster_dict[rank + 1] = [clust]
+            cluster_list.append(clust)
             continue
 
         group_all_by_all = split_all_by_all(all_by_all, clust.cluster)["removed"]
@@ -172,17 +165,27 @@ def homolog_caller(cluster, all_by_all, cluster_dict, rank):
 
         group_all_by_all[:][2] = re_norm
 
-        cluster_dict = homolog_caller(clust, group_all_by_all, cluster_dict, rank + 1)
+        # Recursion...
+        cluster_list = homolog_caller(clust, group_all_by_all, cluster_list,
+                                      "%s_%s" % (rank, _counter), save, steps=steps)
+        _counter += 1
 
-    return cluster_dict
+    if save:
+        temp_dir.save("%s/group_%s" % (save, rank))
+
+    return cluster_list
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(prog="homolog_caller", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("all_by_all_file", help="Location of all-by-all scores file", action="store")
+    parser.add_argument("output_file", help="Where should groups be written to? Default to stdout.", action="store", nargs="?")
+    parser.add_argument("-mcs", "--mcmcmc_steps", default=1000, type=int,
+                        help="Specify how deeply to sample MCL parameters")
     parser.add_argument("-sep", "--separator", action="store", default="\t",
                         help="If the all-by-all file is not tab delimited, specify the character")
+    parser.add_argument("-stf", "--save_temp_files", help="Keep all mcmcmc and MCL files", default=False)
 
     in_args = parser.parse_args()
 
@@ -198,16 +201,27 @@ if __name__ == '__main__':
     master_cluster = master_cluster.value_counts()
     master_cluster = Cluster([i for i in master_cluster.index])
 
-    final_cluster_dict = {}
-    final_cluster_dict = homolog_caller(master_cluster, scores_data, final_cluster_dict, 0)
+    if in_args.save_temp_files:
+        if not os.path.isdir(in_args.save_temp_files):
+            os.makedirs(in_args.save_temp_files)
+
+    print("Executing Homolog Caller...")
+    final_clusters = []
+    final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0,
+                                    in_args.save_temp_files, steps=in_args.mcmcmc_steps)
 
     output = ""
-    for i in final_cluster_dict:
-        for j in final_cluster_dict[i]:
-            for k in j.cluster:
-                output += "%s\t" % k
-            output = "%s\n" % output.strip()
-        output += "\n"
+    counter = 1
+    for i in final_clusters:
+        output += "group_%s\tscore: %s\n" % (counter, i.score())
+        counter += 1
+        for j in i.cluster:
+            output += "%s\t" % j
+        output = "%s\n\n" % output.strip()
 
-    with open("testoutput.txt", "w") as ofile:
-        ofile.write(output)
+    if not in_args.output_file:
+        print(output)
+
+    else:
+        with open(in_args.output_file, "w") as ofile:
+            ofile.write(output)
