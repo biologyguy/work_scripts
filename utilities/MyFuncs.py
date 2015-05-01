@@ -26,10 +26,13 @@ class Timer():
 
 # maybe use curses library in the future to extend this for multi-line printing
 class DynamicPrint():
-    def __init__(self, out_type=stdout):
+    def __init__(self, out_type="stdout"):
         self._last_print = ""
         self._next_print = ""
         self._writer = self._write()
+
+        out_type = stdout if out_type == "stdout" else out_type
+        out_type = stderr if out_type == "stderr" else out_type
         self.out_type = out_type
 
     def _write(self):
