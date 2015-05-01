@@ -209,7 +209,8 @@ class TempDir():
         rmtree("%s/%s" % (self.path, _dir))
         return
 
-    def save(self, location):
+    def save(self, location, keep_hash=False):
+        location = location if not keep_hash else "%s/%s" % (location, self.path.split("/")[-1])
         if os.path.isdir(location):
             print("Save Error: Indicated output folder already exists in TempDir.save(%s)" % location, file=stderr)
             return False
