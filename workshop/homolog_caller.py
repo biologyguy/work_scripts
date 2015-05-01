@@ -26,25 +26,30 @@ class Clusters():
             self.input = ifile.read()
 
         self.clusters = self.input.strip().split(group_split)
-        self.clusters = [[y for y in x.strip().split(gene_split)] for x in self.clusters]
-        self.clusters.reverse()
+        self.clusters = [Cluster([y for y in x.strip().split(gene_split)]) for x in self.clusters]
         self.size = 0.
         for group in self.clusters:
-            self.size += len(group)
+            self.size += group.len
+
         self.printer = MyFuncs.DynamicPrint()
         self.taxa_split = taxa_split
 
     def score_all_clusters(self):
         score = 0
         for cluster in self.clusters:
-            score += self.score_cluster(cluster, self.taxa_split)
+            score += cluster.score(self.taxa_split)
 
         modifier = abs(self.size ** (1 / 2) - len(self.clusters))
         return round(score / len(self.clusters) - modifier ** 1.2, 2)
 
-    @staticmethod
-    def score_cluster(cluster, taxa_split="-"):
-        taxa = [x.split(taxa_split)[0] for x in cluster]
+
+class Cluster():
+    def __init__(self, cluster):
+        self.cluster = cluster
+        self.len = len(self.cluster)
+
+    def score(self, taxa_split="-"):
+        taxa = [x.split(taxa_split)[0] for x in self.cluster]
         taxa = pd.Series(taxa)
 
         if len(taxa) == 1:
@@ -64,6 +69,9 @@ class Clusters():
 
         score += singles ** 2
         return score
+
+    def __str__(self):
+        return str(self.cluster)
 
 
 def split_all_by_all(data_frame, remove_list):
@@ -90,18 +98,83 @@ def mcmcmc_mcl(args, params):
     input_file, min_score = params
     tmp_dir = MyFuncs.TempDir()
 
-    output = Popen("mcl %s --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" % (input_file, gq, I, tmp_dir.path),
-                   shell=True, stderr=PIPE).communicate()
+    _output = Popen("mcl %s --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" % (input_file, gq, I, tmp_dir.path),
+                    shell=True, stderr=PIPE).communicate()
 
-    output = output[1].decode()
+    _output = _output[1].decode()
 
-    if re.search("\[mclvInflate\] warning", output) and min_score:
+    if re.search("\[mclvInflate\] warning", _output) and min_score:
         return min_score
 
     clusters = Clusters("%s/output.groups" % tmp_dir.path)
     score = clusters.score_all_clusters()
     return score
 
+
+def homolog_caller(cluster, all_by_all, cluster_dict, rank):
+    # if rank == 2:            # Delete this
+    #    return cluster_dict  # Delete this
+
+    temp_dir = MyFuncs.TempDir()
+
+    all_by_all.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
+
+    inflation_var = mcmcmc.Variable("I", 1.4, 20)
+    gq_var = mcmcmc.Variable("gq", 0.05, 0.95)
+
+    try:
+        mcmcmc_factory = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=100, sample_rate=1,
+                                       params=["%s/input.csv" % temp_dir.path, False], outfile="%s/mcmcmc_out.csv" % temp_dir.path)
+    except RuntimeError:  # Happens when mcmcmc fails to find initial chain parameters
+        return cluster_dict
+
+    # Set a 'worst score' that is reasonable for the data set
+    worst_score = 10000000  # arbitrarily large number
+    for chain in mcmcmc_factory.chains:
+        worst_score = chain.raw_min if chain.raw_min < worst_score else worst_score
+
+    mcmcmc_factory.reset_params(["%s/input.csv" % temp_dir.path, worst_score])
+
+    print("\nRunning\n")
+    mcmcmc_factory.run()
+
+    mcmcmc_output = pd.read_csv("%s/mcmcmc_out.csv" % temp_dir.path, "\t")
+
+    if rank in cluster_dict:
+        cluster_dict[rank].append(cluster)
+    else:
+        cluster_dict[rank] = [cluster]
+
+    best_score = max(mcmcmc_output["result"])
+    if best_score < cluster.score():
+        return cluster_dict
+
+    best_df = mcmcmc_output.loc[mcmcmc_output['result'] == best_score]
+
+    Popen("mcl %s --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" %
+          ("%s/input.csv" % temp_dir.path, best_df[0:1]["gq"].values[0], best_df[0:1]["I"].values[0], temp_dir.path), shell=True, stderr=PIPE).communicate()
+
+    mcl_clusters = Clusters("%s/output.groups" % temp_dir.path)
+    for clust in mcl_clusters.clusters:
+        if len(clust.cluster) in [1, 2]:
+            if rank + 1 in cluster_dict:
+                cluster_dict[rank + 1].append(clust)
+            else:
+                cluster_dict[rank + 1] = [clust]
+            continue
+
+        group_all_by_all = split_all_by_all(all_by_all, clust.cluster)["removed"]
+
+        _min = group_all_by_all[:][2].min()
+        data_range = group_all_by_all[:][2].max() - _min
+
+        re_norm = (group_all_by_all[:][2] - _min) / data_range
+
+        group_all_by_all[:][2] = re_norm
+
+        cluster_dict = homolog_caller(clust, group_all_by_all, cluster_dict, rank + 1)
+
+    return cluster_dict
 
 if __name__ == '__main__':
     import argparse
@@ -113,37 +186,28 @@ if __name__ == '__main__':
 
     in_args = parser.parse_args()
 
-    scores_data = pd.read_csv(os.path.abspath(in_args.all_by_all_file), in_args.separator, header=None)
-
     best = None
     best_clusters = None
     lock = Lock()
-    inflation_steps = [20, 10, 6, 5, 4, 3, 2, 1.4]
-    gq_vals = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.9]
-    mcl_params = []
-    temp_dir = MyFuncs.TempDir()
+
     counter = 1
 
-    for inflation in inflation_steps:
-        for gq in gq_vals:
-            mcl_params.append({"work_dir": temp_dir.path, "I": inflation,
-                               "gq": "'gq(%s)'" % gq, "out_name": "mcl%s" % counter})
-            counter += 1
+    scores_data = pd.read_csv(os.path.abspath(in_args.all_by_all_file), in_args.separator, header=None)
 
-    scores_data.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
+    master_cluster = pd.concat([scores_data[0], scores_data[1]])
+    master_cluster = master_cluster.value_counts()
+    master_cluster = Cluster([i for i in master_cluster.index])
 
-    inflation_var = mcmcmc.Variable("I", 1.4, 20)
-    gq_var = mcmcmc.Variable("gq", 0.05, 0.95)
+    final_cluster_dict = {}
+    final_cluster_dict = homolog_caller(master_cluster, scores_data, final_cluster_dict, 0)
 
-    mcmcmc = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=10, sample_rate=1,
-                           params=["%s/input.csv" % temp_dir.path, False])
+    output = ""
+    for i in final_cluster_dict:
+        for j in final_cluster_dict[i]:
+            for k in j.cluster:
+                output += "%s\t" % k
+            output = "%s\n" % output.strip()
+        output += "\n"
 
-    # Set a 'worst score' that is reasonable for the data set
-    worst_score = 10000000  # arbitrarily large number
-    for chain in mcmcmc.chains:
-        worst_score = chain.raw_min if chain.raw_min < worst_score else worst_score
-
-    mcmcmc.reset_params(["%s/input.csv" % temp_dir.path, worst_score])
-    print(worst_score)
-    print("\nRunning\n")
-    mcmcmc.run()
+    with open("testoutput.txt", "w") as ofile:
+        ofile.write(output)
