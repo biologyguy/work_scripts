@@ -47,7 +47,7 @@ class Variable():
 
             if safety_check < 0:
                 import traceback
-                sys.exit("Popped safety valve on step()\n%s\n%s" % (traceback.print_stack(), draw_val))
+                raise RuntimeError("Popped safety valve on step()\n%s\n%s" % (traceback.print_stack(), draw_val))
             safety_check -= 1
         self.draw_value = draw_val
         self.history["draws"].append(self.draw_value)
@@ -70,7 +70,7 @@ class Variable():
 
 
 class _Chain():
-    def __init__(self, variables, function, params=False):
+    def __init__(self, variables, function, params=False, quiet=False):
         self.variables = variables
         self.function = function
         self.params = params
@@ -85,9 +85,14 @@ class _Chain():
         # Sample `function` for starting min/max scores
         self.raw_min = 0.
         self.raw_max = 0.
-        valve = 1
-        print("Setting initial chain parameters:")
+        valve = 0
+        if not quiet:
+            print("Setting initial chain parameters:")
         while len(self.score_history) < 2 or min(self.score_history) == max(self.score_history):
+            if valve == 30:
+                raise RuntimeError("Popped the safety valve while initializing chain.")
+            valve += 1
+
             output = "\tStep %s:" % valve
             func_args = []
             for variable in self.variables:
@@ -98,10 +103,9 @@ class _Chain():
             score = self.function(func_args) if not self.params else self.function(func_args, self.params)
             self.score_history.append(score)
             output += " Score = %s" % score
-            print(output)
-            if valve == 10:
-                sys.exit("Popped the safety valve while initializing chain.")
-            valve += 1
+
+            if not quiet:
+                print(output)
 
         for variable in self.variables:
             variable.draw_random()
@@ -175,7 +179,7 @@ class _Chain():
 
 class MCMCMC():
     def __init__(self, variables, function, params=False, steps=10000, sample_rate=100, num_chains=3,
-                 outfile='./mcmcmc_out.csv', burn_in=100):
+                 outfile='./mcmcmc_out.csv', burn_in=100, quiet=False):
 
         self.global_variables = variables
         self.steps = steps
@@ -189,7 +193,7 @@ class MCMCMC():
             heading += "result\n"
             ofile.write(heading)
 
-        self.chains = [_Chain(deepcopy(self.global_variables), function, params=params) for _ in range(num_chains)]
+        self.chains = [_Chain(deepcopy(self.global_variables), function, params=params, quiet=quiet) for _ in range(num_chains)]
         self.best = {"score": 0., "variables": {x.name: 0. for x in variables}}
 
         # Set a cold chain. The cold chain should always be set at index 0, even if a chain swap occurs
@@ -336,9 +340,9 @@ class MCMCMC():
 
             printer_vars = ""
             for x in self.chains[0].variables:
-                printer_vars += "\t%s: %6.3f" % (x.name, round(x.current_value, 3))
+                printer_vars += "%s: %6.3f\t" % (x.name, round(x.current_value, 3))
 
-            self.printer.write("%s: %6.3f(%s)" % (counter, round(self.chains[0].current_raw_score, 3), printer_vars))
+            self.printer.write("%5.0f: %8.3f\t(%s)" % (counter, round(self.chains[0].current_raw_score, 3), printer_vars.strip()))
             counter += 1
         print()
         return
