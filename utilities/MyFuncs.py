@@ -309,9 +309,9 @@ def walklevel(some_dir, level=1):
             del dirs[:]
 
 
-def normalize(data, trim_ends=0.0):
+def normalize(data, trim_ends=1.0):
     if 0. > trim_ends > 1.0:
-        raise ValueError("scale_range() percentile parameter should be between 0.5 and 1.0")
+        raise ValueError("normalize() trim_ends parameter should be between 0.5 and 1.0")
 
     if trim_ends > 0.5:
         trim_ends = 1 - trim_ends
