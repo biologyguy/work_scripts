@@ -49,6 +49,13 @@ class DynamicPrint():
         content = sub("\t", "    ", content)
         self._next_print = content
         next(self._writer)
+        return
+
+    def new_line(self):
+        self.out_type.write("\n")
+        self.out_type.flush()
+        self._last_print = ""
+        return
 
 
 def pretty_time(seconds):
