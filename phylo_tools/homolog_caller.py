@@ -45,8 +45,9 @@ class Clusters():
 
 class Cluster():
     def __init__(self, cluster):
-        self.cluster = cluster
+        self.cluster = cluster.sort()
         self.len = len(self.cluster)
+        self.name = ""
 
     def score(self, taxa_split="-"):
         taxa = [x.split(taxa_split)[0] for x in self.cluster]
@@ -124,6 +125,9 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
                                        params=["%s/input.csv" % temp_dir.path, False], quiet=True,
                                        outfile="%s/mcmcmc_out.csv" % temp_dir.path)
     except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
+        cluster_list.append(cluster)
+        if save:
+            temp_dir.save("%s/group_%s" % (save, rank))
         return cluster_list
 
     # Set a 'worst score' that is reasonable for the data set
@@ -152,6 +156,9 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
     mcl_clusters = Clusters("%s/output.groups" % temp_dir.path)
     _counter = 1
     for clust in mcl_clusters.clusters:
+        next_rank = "%s_%s" % (rank, _counter)
+        clust.name = next_rank
+        _counter += 1
         if len(clust.cluster) in [1, 2]:
             cluster_list.append(clust)
             continue
@@ -166,9 +173,7 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
         group_all_by_all[:][2] = re_norm
 
         # Recursion...
-        cluster_list = homolog_caller(clust, group_all_by_all, cluster_list,
-                                      "%s_%s" % (rank, _counter), save, steps=steps)
-        _counter += 1
+        cluster_list = homolog_caller(clust, group_all_by_all, cluster_list, next_rank, save, steps=steps)
 
     if save:
         temp_dir.save("%s/group_%s" % (save, rank))
@@ -211,13 +216,11 @@ if __name__ == '__main__':
                                     in_args.save_temp_files, steps=in_args.mcmcmc_steps)
 
     output = ""
-    counter = 1
-    for i in final_clusters:
-        output += "group_%s\tscore: %s\n" % (counter, i.score())
-        counter += 1
-        for j in i.cluster:
-            output += "%s\t" % j
-        output = "%s\n\n" % output.strip()
+    for clust in final_clusters:
+        output += "group_%s\t%s\t" % (clust.name, clust.score())
+        for seq_id in clust.cluster:
+            output += "%s\t" % seq_id
+        output = "%s\n" % output.strip()
 
     if not in_args.output_file:
         print(output)
