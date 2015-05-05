@@ -196,9 +196,10 @@ def bit_score(raw_score):
 
 
 def alignment_sub_mat_score(_subj_top, _query_top, _subj_align, _query_align):
-    normalizing_len = (len(_subj_top) + len(_query_top)) / 2
+    normalizing_len = len(_subj_top) + len(_query_top)
     _score = 0
     gaps = 0
+    matches = 0
     for i in range(len(_subj_align)):
         if _subj_align[i] == "-":
             gaps += 1
@@ -209,6 +210,7 @@ def alignment_sub_mat_score(_subj_top, _query_top, _subj_align, _query_align):
             _subj_top = _subj_top[1:]
 
         else:
+            matches += 1
             _pair = sorted((_subj_align[i], _query_align[i]))
             _pair = tuple(_pair)
             if _subj_top[0] == "M" and _query_top[0] == "M":
@@ -219,9 +221,10 @@ def alignment_sub_mat_score(_subj_top, _query_top, _subj_align, _query_align):
             _subj_top = _subj_top[1:]
             _query_top = _query_top[1:]
 
+    _score += (_score / matches) * (1 - (gaps / normalizing_len)) * gaps
     _score = bit_score(_score)
-    _score /= normalizing_len
-    return {"score": _score, "gaps": gaps}
+    _score /= matches + gaps
+    return _score
 
 
 def score_alignme(alignme_file):  # This is the .prf file
@@ -236,27 +239,31 @@ def score_alignme(alignme_file):  # This is the .prf file
             break
     del file_lines[-1]
 
-    # determine normalizing maximum. I have semi-arbitrarily set this as one-half the sum of residues in both seqs
     seq1_len = 0.0
     seq2_len = 0.0
     for data in file_lines:
         data = re.split("\s+", data)
         if data[1] != "?0":
             seq1_len += 1
+
         if data[5] != "?0":
             seq2_len += 1
 
-    normalizing_len = (seq1_len + seq2_len) / 2
+    normalizing_len = seq1_len + seq2_len
 
     tally = 0.0
+    gaps = 0
+    matches = 0
     for data in file_lines:
         if data[0] == "#":
             continue
         data = re.sub("\s+", ",", data)
         data = data.split(",")
-        if "?0" in [data[1], data[5]]:  # Gaps get a score of 0
+        if "?0" in [data[1], data[5]]:  # Gap scores will be dependent on match scores
+            gaps += 1
             continue
 
+        matches += 1
         # At the moment, all four parameters are given equal weight
         membrane_score = 1 - abs(float(data[1]) - float(data[5]))
         coil_score = 1 - abs(float(data[2]) - float(data[6]))
@@ -264,7 +271,9 @@ def score_alignme(alignme_file):  # This is the .prf file
         sheet_score = 1 - abs(float(data[4]) - float(data[8]))
         tally += membrane_score + coil_score + helix_score + sheet_score
 
-    return round((tally / normalizing_len) / 4, 5)  # The '4' is for the number of columns being compared
+    # Add in some value for gaps, based on how many gaps there are, and the average score of matches
+    tally += (tally / matches) * (1 - (gaps / normalizing_len)) * gaps
+    return round((tally / (matches + gaps)) / 4, 5)  # The '4' is for the number of columns being compared
 
 
 def mc_subs_mat_scores(_pair):
@@ -282,7 +291,7 @@ def mc_subs_mat_scores(_pair):
             output = alignment_sub_mat_score(subj_top, query_top, subj_align, query_align)
             with stdout_lock:
                 with open(subs_mat_scores_file, "a") as _ofile:
-                    _ofile.write("%s-%s\t%s\n" % (_pair[0], _pair[1], output["score"]))
+                    _ofile.write("%s-%s\t%s\n" % (_pair[0], _pair[1], output))
             return
 
 
