@@ -11,6 +11,8 @@ import re
 from copy import copy
 from subprocess import Popen, PIPE
 from multiprocessing import Lock
+from random import sample
+from math import floor
 
 # 3rd party
 import pandas as pd
@@ -45,7 +47,8 @@ class Clusters():
 
 class Cluster():
     def __init__(self, cluster):
-        self.cluster = cluster.sort()
+        cluster.sort()
+        self.cluster = cluster
         self.len = len(self.cluster)
         self.name = ""
 
@@ -180,12 +183,57 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
 
     return cluster_list
 
+
+def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
+    total_pop = [x.cluster for x in orig_clusters]  # List of lists
+    total_pop = [x for _clust in total_pop for x in _clust]  # Flatten to a 1D list
+
+    sample_size = floor(level * len(total_pop))
+
+    # Add a new 'support' attribute to each Cluster object to be filled in with each step
+    for _clust in orig_clusters:
+        _clust.support = 0.
+
+    for i in range(steps):
+        jn_sample = Cluster(sample(total_pop, sample_size))
+        samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["remaining"]
+        sample_clusters = []
+        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=1000)
+
+        for orig_clust in orig_clusters:
+            for _clust in sample_clusters:
+                intersect = set(_clust.cluster).intersection(orig_clust.cluster)
+                if len(intersect) == 0:
+                    continue
+
+                elif len(intersect) != len(_clust.cluster):
+                    break
+
+                else:
+                    orig_clust.support += 1
+
+        ####
+        _output = ""
+        for _clust in sample_clusters:
+            _output += "group_%s\t%s\t" % (_clust.name, _clust.score())
+            for _seq_id in _clust.cluster:
+                _output += "%s\t" % _seq_id
+            _output = "%s\n" % _output.strip()
+        print(_output)
+        ######
+
+    for _clust in orig_clusters:
+        _clust.support /= steps
+
+    return orig_clusters
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(prog="homolog_caller", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("all_by_all_file", help="Location of all-by-all scores file", action="store")
     parser.add_argument("output_file", help="Where should groups be written to? Default to stdout.", action="store", nargs="?")
+    parser.add_argument("-jk", "--jackknife", help="Find support for previous run.", metavar="<Groups file>")
     parser.add_argument("-mcs", "--mcmcmc_steps", default=1000, type=int,
                         help="Specify how deeply to sample MCL parameters")
     parser.add_argument("-sep", "--separator", action="store", default="\t",
@@ -210,21 +258,37 @@ if __name__ == '__main__':
         if not os.path.isdir(in_args.save_temp_files):
             os.makedirs(in_args.save_temp_files)
 
-    print("Executing Homolog Caller...")
-    final_clusters = []
-    final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0,
-                                    in_args.save_temp_files, steps=in_args.mcmcmc_steps)
+    if in_args.jackknife:
+        print("Preparing Jackknife support values")
+        with open(in_args.jackknife, "r") as ifile:
+            groups = ifile.read()
 
-    output = ""
-    for clust in final_clusters:
-        output += "group_%s\t%s\t" % (clust.name, clust.score())
-        for seq_id in clust.cluster:
-            output += "%s\t" % seq_id
-        output = "%s\n" % output.strip()
+        groups = groups.strip().split("\n")
+        final_clusters = [group.strip().split("\t") for group in groups]
+        for i, clust in enumerate(final_clusters):
+            final_clusters[i] = Cluster(clust[2:])
+            final_clusters[i].name = clust[0]
 
-    if not in_args.output_file:
-        print(output)
+        final_clusters = jackknife(final_clusters, scores_data, 100)
+        for clust in final_clusters:
+            print("%s: %s" % (clust.name, clust.support))
 
     else:
-        with open(in_args.output_file, "w") as ofile:
-            ofile.write(output)
+        print("Executing Homolog Caller...")
+        final_clusters = []
+        final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0,
+                                        in_args.save_temp_files, steps=in_args.mcmcmc_steps)
+
+        output = ""
+        for clust in final_clusters:
+            output += "group_%s\t%s\t" % (clust.name, clust.score())
+            for seq_id in clust.cluster:
+                output += "%s\t" % seq_id
+            output = "%s\n" % output.strip()
+
+        if not in_args.output_file:
+            print(output)
+
+        else:
+            with open(in_args.output_file, "w") as ofile:
+                ofile.write(output)

@@ -47,8 +47,8 @@ class Clusters():
             tally = 0.
             len_subj = len(subj)
 
-            # This is quite inefficient, bc it iterates from the top of query list every time... Need a way to better
-            # manage search if this ever starts to be used regularly.
+            # This is inefficient, bc it iterates from the top of query list every time... Need a way to better manage
+            # search if this ever starts to be used regularly. Possibly by converting Clusters.clusters to to a set()
             for query in query_clusters.clusters:
                 matches = self.num_matches(subj, query)
                 if not matches:
@@ -86,7 +86,8 @@ class Clusters():
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(prog="compare_homolog_groups", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(prog="compare_homolog_groups", description="",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("subject", help="Input file 1", action="store")
     parser.add_argument("query", help="Input file 2", action="store")
     parser.add_argument("--group_split", "-gs", action="store", default="\n",
