@@ -6,6 +6,7 @@
 DESCRIPTION OF PROGRAM
 """
 # Std library
+import sys
 import os
 import re
 from copy import copy
@@ -16,6 +17,9 @@ from math import floor
 
 # 3rd party
 import pandas as pd
+import numpy as np
+import scipy.stats
+import statsmodels.api as sm
 
 # My packages
 import mcmcmc
@@ -38,10 +42,19 @@ class Clusters():
 
     def score_all_clusters(self):
         score = 0
+        taxa = pd.Series()
         for cluster in self.clusters:
             score += cluster.score(self.taxa_split)
+            temp_taxa = [x.split(self.taxa_split)[0] for x in cluster.cluster]
+            temp_taxa = pd.Series(temp_taxa)
+            taxa = pd.concat([taxa, temp_taxa])
 
         modifier = abs(self.size ** (1 / 2) - len(self.clusters))
+        #print(taxa.value_counts().mean())
+        #print(1 + taxa.value_counts().std())
+        #import sys
+        #sys.exit()
+        #modifier = abs(taxa.value_counts().mean() ** (1 + taxa.value_counts().std()) - len(self.clusters))
         return round(score / len(self.clusters) - modifier ** 1.2, 2)
 
 
@@ -145,7 +158,7 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
     mcmcmc_output = pd.read_csv("%s/mcmcmc_out.csv" % temp_dir.path, "\t")
 
     best_score = max(mcmcmc_output["result"])
-    if best_score < cluster.score():
+    if best_score <= cluster.score():
         cluster_list.append(cluster)
         if save:
             temp_dir.save("%s/group_%s" % (save, rank))
@@ -158,15 +171,15 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
 
     mcl_clusters = Clusters("%s/output.groups" % temp_dir.path)
     _counter = 1
-    for clust in mcl_clusters.clusters:
+    for _clust in mcl_clusters.clusters:
         next_rank = "%s_%s" % (rank, _counter)
-        clust.name = next_rank
+        _clust.name = next_rank
         _counter += 1
-        if len(clust.cluster) in [1, 2]:
-            cluster_list.append(clust)
+        if len(_clust.cluster) in [1, 2]:
+            cluster_list.append(_clust)
             continue
 
-        group_all_by_all = split_all_by_all(all_by_all, clust.cluster)["removed"]
+        group_all_by_all = split_all_by_all(all_by_all, _clust.cluster)["removed"]
 
         _min = group_all_by_all[:][2].min()
         data_range = group_all_by_all[:][2].max() - _min
@@ -176,12 +189,85 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
         group_all_by_all[:][2] = re_norm
 
         # Recursion...
-        cluster_list = homolog_caller(clust, group_all_by_all, cluster_list, next_rank, save, steps=steps)
+        cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank, save, steps=steps)
 
     if save:
         temp_dir.save("%s/group_%s" % (save, rank))
 
     return cluster_list
+
+
+def merge_singles(clusters, scores):
+    small_clusters = []
+    large_clusters = []
+    large_group_names = []
+    small_group_names = []
+    for cluster in clusters:
+        if len(cluster.cluster) > 2:
+            large_group_names.append(cluster.name)
+            large_clusters.append(cluster)
+        else:
+            small_group_names.append(cluster.name)
+            small_clusters.append(cluster)
+
+    # Convert the large_clusters list to a dict using group name as key
+    large_clusters = {x: large_clusters[j] for j, x in enumerate(large_group_names)}
+
+    small_to_large_dict = {}
+    for sclust in small_clusters:
+        small_to_large_dict[sclust.name] = {ind: [] for ind, value in large_clusters.items()}
+        for sgene in sclust.cluster:
+            for key, lclust in large_clusters.items():
+                for lgene in lclust.cluster:
+                    score = scores.loc[:][scores[0] == sgene]
+                    score = score.loc[:][score[1] == lgene]
+
+                    if score.empty:
+                        score = scores.loc[:][scores[0] == lgene]
+                        score = score.loc[:][score[1] == sgene]
+
+                    score = float(score[2])
+                    small_to_large_dict[sclust.name][lclust.name].append(score)
+
+    small_clusters = {x: small_clusters[j] for j, x in enumerate(small_group_names)}
+    for small_group_id, l_clusts in small_to_large_dict.items():
+        # Convert data into list of numpy arrays that sm.stats can read, also get average scores for each cluster
+        data = [np.array(x) for x in l_clusts.values()]
+        averages = pd.Series()
+        for j, group in enumerate(data):
+            key = list(l_clusts.keys())[j]
+            averages = averages.append(pd.Series(np.mean(group), index=[key]))
+            data[j] = pd.DataFrame(group, columns=['observations'])
+            data[j]['grouplabel'] = key
+
+        max_ave = averages.argmax()
+
+        df = pd.DataFrame()
+        for group in data:
+            df = df.append(group)
+
+        result = sm.stats.multicomp.pairwise_tukeyhsd(df.observations, df.grouplabel)
+
+        for line in str(result).split("\n")[4:-1]:
+            line = re.sub("^ *", "", line.strip())
+            line = re.sub(" +", "\t", line)
+            line = line.split("\t")
+            if max_ave in line:
+                if line[5] == 'True':
+                    continue
+                else:
+                    # Insufficient support to group the gene with max_ave group
+                    #print("%s: Fail" % small_group_id)
+                    break
+        else:
+            # The gene can be grouped with the max_ave group (write the code)
+            # final_clusters[max_ave].cluster.append(small_group_id)
+            large_clusters[max_ave].cluster += small_clusters[small_group_id].cluster
+            del small_clusters[small_group_id]
+            #print("%s: Pass" % small_group_id)
+    clusters = [value for ind, value in large_clusters.items()]
+    clusters += [value for ind, value in small_clusters.items()]
+    return clusters
 
 
 def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
@@ -194,7 +280,7 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
     for _clust in orig_clusters:
         _clust.support = 0.
 
-    for i in range(steps):
+    for _ in range(steps):
         jn_sample = Cluster(sample(total_pop, sample_size))
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["remaining"]
         sample_clusters = []
@@ -278,6 +364,23 @@ if __name__ == '__main__':
         final_clusters = []
         final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0,
                                         in_args.save_temp_files, steps=in_args.mcmcmc_steps)
+
+        output = ""
+        for clust in final_clusters:
+            output += "group_%s\t%s\t" % (clust.name, clust.score())
+            for seq_id in clust.cluster:
+                output += "%s\t" % seq_id
+            output = "%s\n" % output.strip()
+
+        if not in_args.output_file:
+            print(output)
+
+        else:
+            with open(in_args.output_file, "w") as ofile:
+                ofile.write(output)
+
+        # Try to fold singletons and doublets back into groups. Use ANOVA.
+        final_clusters = merge_singles(final_clusters, scores_data)
 
         output = ""
         for clust in final_clusters:
