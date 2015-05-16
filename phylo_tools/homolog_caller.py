@@ -18,7 +18,6 @@ from math import floor
 # 3rd party
 import pandas as pd
 import numpy as np
-import scipy.stats
 import statsmodels.api as sm
 
 # My packages
@@ -28,8 +27,8 @@ import MyFuncs
 
 class Clusters():
     def __init__(self, path, group_split="\n", gene_split="\t", taxa_split="-"):
-        with open(path, "r") as ifile:
-            self.input = ifile.read()
+        with open(path, "r") as _ifile:
+            self.input = _ifile.read()
 
         self.clusters = self.input.strip().split(group_split)
         self.clusters = [Cluster([y for y in x.strip().split(gene_split)]) for x in self.clusters]
@@ -44,18 +43,35 @@ class Clusters():
         score = 0
         taxa = pd.Series()
         for cluster in self.clusters:
-            score += cluster.score(self.taxa_split)
+            # Weight each score by cluster size. Final score max = 1.0, min = 0.0
+            score += cluster.score(self.taxa_split) * (cluster.len / self.size)
             temp_taxa = [x.split(self.taxa_split)[0] for x in cluster.cluster]
             temp_taxa = pd.Series(temp_taxa)
             taxa = pd.concat([taxa, temp_taxa])
 
-        modifier = abs(self.size ** (1 / 2) - len(self.clusters))
-        #print(taxa.value_counts().mean())
-        #print(1 + taxa.value_counts().std())
-        #import sys
-        #sys.exit()
-        #modifier = abs(taxa.value_counts().mean() ** (1 + taxa.value_counts().std()) - len(self.clusters))
-        return round(score / len(self.clusters) - modifier ** 1.2, 2)
+        # print(modifier)
+        # print(taxa.value_counts().mean())
+        # print(1 + taxa.value_counts().std())
+
+        # num_clusters_modifier = 1 - abs(len(self.clusters) - genes_per_taxa) / genes_per_taxa
+
+        # modifier = abs(taxa.value_counts().mean() ** (1 + taxa.value_counts().std()) - len(self.clusters))
+        # sys.exit("%s" % (modifier))
+        # return (score + num_clusters_modifier) / 2
+        return self.srs(score)
+
+    # The following are a group of possible scoring schemes
+    def gpt(self, score, taxa):  # groups per taxa
+        genes_per_taxa = self.size / len(taxa.value_counts())
+        num_clusters_modifier = abs(genes_per_taxa - len(self.clusters))
+        score = round(score / len(self.clusters) - num_clusters_modifier ** 1.2, 2)
+        return score
+
+    def srs(self, score):  # Square root sequences
+        # print(len(self.clusters))
+        modifier = abs(self.size ** (1 / 2) - len(self.clusters)) ** 1.2
+        score = round(score / len(self.clusters) - modifier, 2)
+        return score
 
 
 class Cluster():
@@ -84,6 +100,9 @@ class Cluster():
             else:
                 raise ValueError("A taxon was found with %s records" % taxon)
 
+        # perfect_score = len(taxa) ** 2
+        # score += singles ** 2
+        # score /= perfect_score
         score += singles ** 2
         return score
 
@@ -257,14 +276,13 @@ def merge_singles(clusters, scores):
                     continue
                 else:
                     # Insufficient support to group the gene with max_ave group
-                    #print("%s: Fail" % small_group_id)
                     break
         else:
             # The gene can be grouped with the max_ave group (write the code)
             # final_clusters[max_ave].cluster.append(small_group_id)
             large_clusters[max_ave].cluster += small_clusters[small_group_id].cluster
             del small_clusters[small_group_id]
-            #print("%s: Pass" % small_group_id)
+
     clusters = [value for ind, value in large_clusters.items()]
     clusters += [value for ind, value in small_clusters.items()]
     return clusters
@@ -285,6 +303,7 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["remaining"]
         sample_clusters = []
         sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=1000)
+        sample_clusters = merge_singles(sample_clusters, samp_all_by_all)
 
         for orig_clust in orig_clusters:
             for _clust in sample_clusters:
@@ -379,13 +398,20 @@ if __name__ == '__main__':
             with open(in_args.output_file, "w") as ofile:
                 ofile.write(output)
 
-        # Try to fold singletons and doublets back into groups. Use ANOVA.
+        # Try to fold singletons and doublets back into groups.
         final_clusters = merge_singles(final_clusters, scores_data)
 
         output = ""
-        for clust in final_clusters:
-            output += "group_%s\t%s\t" % (clust.name, clust.score())
-            for seq_id in clust.cluster:
+        while len(final_clusters) > 0:
+            _max = (0, 0)
+            for ind, clust in enumerate(final_clusters):
+                if len(clust.cluster) > _max[1]:
+                    _max = (ind, len(clust.cluster))
+
+            ind, _max = _max[0], final_clusters[_max[0]]
+            del final_clusters[ind]
+            output += "group_%s\t%s\t" % (_max.name, _max.score())
+            for seq_id in _max.cluster:
                 output += "%s\t" % seq_id
             output = "%s\n" % output.strip()
 
