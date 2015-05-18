@@ -73,8 +73,14 @@ class Clusters():
         score = round(score / len(self.clusters) - modifier, 2)
         return score
 
+    def write(self, outfile):
+        with open(outfile, "w") as _ofile:
+            for cluster in self.clusters:
+                _ofile.write("%s\n" % "\t".join(cluster.cluster))
+        return
 
-class Cluster():
+
+class Cluster:
     def __init__(self, cluster):
         cluster.sort()
         self.cluster = cluster
@@ -131,19 +137,30 @@ def split_all_by_all(data_frame, remove_list):
 
 def mcmcmc_mcl(args, params):
     I, gq = args
-    input_file, min_score = params
-    tmp_dir = MyFuncs.TempDir()
+    external_tmp_dir, min_score = params
+    mcl_tmp_dir = MyFuncs.TempDir()
 
-    _output = Popen("mcl %s --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" % (input_file, gq, I, tmp_dir.path),
-                    shell=True, stderr=PIPE).communicate()
+    _output = Popen("mcl %s/input.csv --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" %
+                    (external_tmp_dir, gq, I, mcl_tmp_dir.path), shell=True, stderr=PIPE).communicate()
 
     _output = _output[1].decode()
 
     if re.search("\[mclvInflate\] warning", _output) and min_score:
         return min_score
 
-    clusters = Clusters("%s/output.groups" % tmp_dir.path)
+    clusters = Clusters("%s/output.groups" % mcl_tmp_dir.path)
     score = clusters.score_all_clusters()
+
+    with lock:
+        with open("%s/max.txt" % external_tmp_dir, "r") as _ifile:
+            current_max = float(_ifile.read())
+
+    if score > current_max:
+        with lock:
+            clusters.write("%s/output.groups" % external_tmp_dir)
+            with open("%s/max.txt" % external_tmp_dir, "w") as _ofile:
+                _ofile.write(str(score))
+
     return score
 
 
@@ -156,9 +173,13 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
     gq_var = mcmcmc.Variable("gq", 0.05, 0.95)
 
     try:
+        with open("%s/max.txt" % temp_dir.path, "w") as _ofile:
+            _ofile.write("-1000000000")
+
         mcmcmc_factory = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=steps, sample_rate=1,
-                                       params=["%s/input.csv" % temp_dir.path, False], quiet=True,
+                                       params=["%s" % temp_dir.path, False], quiet=True,
                                        outfile="%s/mcmcmc_out.csv" % temp_dir.path)
+
     except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
         cluster_list.append(cluster)
         if save:
@@ -170,7 +191,7 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
     for chain in mcmcmc_factory.chains:
         worst_score = chain.raw_min if chain.raw_min < worst_score else worst_score
 
-    mcmcmc_factory.reset_params(["%s/input.csv" % temp_dir.path, worst_score])
+    mcmcmc_factory.reset_params(["%s" % temp_dir.path, worst_score])
 
     mcmcmc_factory.run()
 
@@ -182,11 +203,6 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
         if save:
             temp_dir.save("%s/group_%s" % (save, rank))
         return cluster_list
-
-    best_df = mcmcmc_output.loc[mcmcmc_output['result'] == best_score]
-
-    Popen("mcl %s --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" %
-          ("%s/input.csv" % temp_dir.path, best_df[0:1]["gq"].values[0], best_df[0:1]["I"].values[0], temp_dir.path), shell=True, stderr=PIPE).communicate()
 
     mcl_clusters = Clusters("%s/output.groups" % temp_dir.path)
     _counter = 1
