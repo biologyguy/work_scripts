@@ -25,7 +25,7 @@ import mcmcmc
 import MyFuncs
 
 
-class Clusters():
+class Clusters:
     def __init__(self, path, group_split="\n", gene_split="\t", taxa_split="-"):
         with open(path, "r") as _ifile:
             self.input = _ifile.read()
@@ -39,28 +39,25 @@ class Clusters():
         self.printer = MyFuncs.DynamicPrint()
         self.taxa_split = taxa_split
 
-    def score_all_clusters(self):
+    def score_all_clusters(self, df_all_by_all=None):
         score = 0
         taxa = pd.Series()
         for cluster in self.clusters:
             # Weight each score by cluster size. Final score max = 1.0, min = 0.0
-            score += cluster.score(self.taxa_split) * (cluster.len / self.size)
+            score += cluster.score(self.taxa_split, df_all_by_all=df_all_by_all) * (cluster.len / self.size)
             temp_taxa = [x.split(self.taxa_split)[0] for x in cluster.cluster]
             temp_taxa = pd.Series(temp_taxa)
             taxa = pd.concat([taxa, temp_taxa])
 
-        # print(modifier)
-        # print(taxa.value_counts().mean())
-        # print(1 + taxa.value_counts().std())
-
-        # num_clusters_modifier = 1 - abs(len(self.clusters) - genes_per_taxa) / genes_per_taxa
-
-        # modifier = abs(taxa.value_counts().mean() ** (1 + taxa.value_counts().std()) - len(self.clusters))
-        # sys.exit("%s" % (modifier))
-        # return (score + num_clusters_modifier) / 2
         return self.srs(score)
 
-    # The following are a group of possible scoring schemes
+    def write(self, outfile):
+        with open(outfile, "w") as _ofile:
+            for cluster in self.clusters:
+                _ofile.write("%s\n" % "\t".join(cluster.cluster))
+        return
+
+    # The following are possible score modifier schemes to accoutn for group size
     def gpt(self, score, taxa):  # groups per taxa
         genes_per_taxa = self.size / len(taxa.value_counts())
         num_clusters_modifier = abs(genes_per_taxa - len(self.clusters))
@@ -73,12 +70,6 @@ class Clusters():
         score = round(score / len(self.clusters) - modifier, 2)
         return score
 
-    def write(self, outfile):
-        with open(outfile, "w") as _ofile:
-            for cluster in self.clusters:
-                _ofile.write("%s\n" % "\t".join(cluster.cluster))
-        return
-
 
 class Cluster:
     def __init__(self, cluster):
@@ -87,7 +78,7 @@ class Cluster:
         self.len = len(self.cluster)
         self.name = ""
 
-    def score(self, taxa_split="-"):
+    def score(self, taxa_split="-", df_all_by_all=None):
         taxa = [x.split(taxa_split)[0] for x in self.cluster]
         taxa = pd.Series(taxa)
 
@@ -106,10 +97,17 @@ class Cluster:
             else:
                 raise ValueError("A taxon was found with %s records" % taxon)
 
-        # perfect_score = len(taxa) ** 2
-        # score += singles ** 2
-        # score /= perfect_score
         score += singles ** 2
+
+        # Include score for cliques
+        if df_all_by_all:
+            cluster_copy = copy(self.cluster)
+            data_frame = copy(df_all_by_all)
+            data_frame.columns = [0, 1, 2]
+            clique_score = 0
+            while len(cluster_copy):
+                break
+
         return score
 
     def __str__(self):
@@ -137,7 +135,7 @@ def split_all_by_all(data_frame, remove_list):
 
 def mcmcmc_mcl(args, params):
     I, gq = args
-    external_tmp_dir, min_score = params
+    external_tmp_dir, min_score, all_by_all = params
     mcl_tmp_dir = MyFuncs.TempDir()
 
     _output = Popen("mcl %s/input.csv --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" %
@@ -149,7 +147,7 @@ def mcmcmc_mcl(args, params):
         return min_score
 
     clusters = Clusters("%s/output.groups" % mcl_tmp_dir.path)
-    score = clusters.score_all_clusters()
+    score = clusters.score_all_clusters(all_by_all)
 
     with lock:
         with open("%s/max.txt" % external_tmp_dir, "r") as _ifile:
@@ -164,10 +162,17 @@ def mcmcmc_mcl(args, params):
     return score
 
 
-def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=1000):
+def clique_checker(cluster, df_all_by_all, taxa_split="-"):
+    genes = pd.DataFrame([x.split(taxa_split) for x in cluster.cluster])
+    genes.columns = ["taxa", "gene"]
+
+    return 10
+
+
+def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_all=None, save=False, steps=1000):
     temp_dir = MyFuncs.TempDir()
 
-    all_by_all.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
+    local_all_by_all.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
 
     inflation_var = mcmcmc.Variable("I", 1.4, 20)
     gq_var = mcmcmc.Variable("gq", 0.05, 0.95)
@@ -177,7 +182,7 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
             _ofile.write("-1000000000")
 
         mcmcmc_factory = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=steps, sample_rate=1,
-                                       params=["%s" % temp_dir.path, False], quiet=True,
+                                       params=["%s" % temp_dir.path, False, False], quiet=True,
                                        outfile="%s/mcmcmc_out.csv" % temp_dir.path)
 
     except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
@@ -191,14 +196,16 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
     for chain in mcmcmc_factory.chains:
         worst_score = chain.raw_min if chain.raw_min < worst_score else worst_score
 
-    mcmcmc_factory.reset_params(["%s" % temp_dir.path, worst_score])
+    mcmcmc_factory.reset_params(["%s" % temp_dir.path, worst_score, global_all_by_all])
 
     mcmcmc_factory.run()
 
     mcmcmc_output = pd.read_csv("%s/mcmcmc_out.csv" % temp_dir.path, "\t")
 
     best_score = max(mcmcmc_output["result"])
-    if best_score <= cluster.score():
+    if best_score <= cluster.score(df_all_by_all=global_all_by_all):
+        cliques = clique_checker(cluster, local_all_by_all)
+        sys.exit(cliques)
         cluster_list.append(cluster)
         if save:
             temp_dir.save("%s/group_%s" % (save, rank))
@@ -214,7 +221,7 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
             cluster_list.append(_clust)
             continue
 
-        group_all_by_all = split_all_by_all(all_by_all, _clust.cluster)["removed"]
+        group_all_by_all = split_all_by_all(local_all_by_all, _clust.cluster)["removed"]
 
         _min = group_all_by_all[:][2].min()
         data_range = group_all_by_all[:][2].max() - _min
@@ -224,7 +231,8 @@ def homolog_caller(cluster, all_by_all, cluster_list, rank, save=False, steps=10
         group_all_by_all[:][2] = re_norm
 
         # Recursion...
-        cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank, save, steps=steps)
+        cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank,
+                                      global_all_by_all=global_all_by_all, save=save, steps=steps)
 
     if save:
         temp_dir.save("%s/group_%s" % (save, rank))
@@ -250,7 +258,7 @@ def merge_singles(clusters, scores):
 
     small_to_large_dict = {}
     for sclust in small_clusters:
-        small_to_large_dict[sclust.name] = {ind: [] for ind, value in large_clusters.items()}
+        small_to_large_dict[sclust.name] = {_ind: [] for _ind, value in large_clusters.items()}
         for sgene in sclust.cluster:
             for key, lclust in large_clusters.items():
                 for lgene in lclust.cluster:
@@ -299,8 +307,8 @@ def merge_singles(clusters, scores):
             large_clusters[max_ave].cluster += small_clusters[small_group_id].cluster
             del small_clusters[small_group_id]
 
-    clusters = [value for ind, value in large_clusters.items()]
-    clusters += [value for ind, value in small_clusters.items()]
+    clusters = [value for _ind, value in large_clusters.items()]
+    clusters += [value for _ind, value in small_clusters.items()]
     return clusters
 
 
@@ -336,7 +344,7 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
         ####
         _output = ""
         for _clust in sample_clusters:
-            _output += "group_%s\t%s\t" % (_clust.name, _clust.score())
+            _output += "group_%s\t%s\t" % (_clust.name, _clust.score(df_all_by_all=all_by_all))
             for _seq_id in _clust.cluster:
                 _output += "%s\t" % _seq_id
             _output = "%s\n" % _output.strip()
@@ -397,22 +405,15 @@ if __name__ == '__main__':
     else:
         print("Executing Homolog Caller...")
         final_clusters = []
-        final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0,
-                                        in_args.save_temp_files, steps=in_args.mcmcmc_steps)
+        final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0, save=in_args.save_temp_files,
+                                        global_all_by_all=scores_data, steps=in_args.mcmcmc_steps)
 
         output = ""
         for clust in final_clusters:
-            output += "group_%s\t%s\t" % (clust.name, clust.score())
+            output += "group_%s\t%s\t" % (clust.name, clust.score(df_all_by_all=scores_data))
             for seq_id in clust.cluster:
                 output += "%s\t" % seq_id
             output = "%s\n" % output.strip()
-
-        if not in_args.output_file:
-            print(output)
-
-        else:
-            with open(in_args.output_file, "w") as ofile:
-                ofile.write(output)
 
         # Try to fold singletons and doublets back into groups.
         final_clusters = merge_singles(final_clusters, scores_data)
@@ -426,7 +427,7 @@ if __name__ == '__main__':
 
             ind, _max = _max[0], final_clusters[_max[0]]
             del final_clusters[ind]
-            output += "group_%s\t%s\t" % (_max.name, _max.score())
+            output += "group_%s\t%s\t" % (_max.name, _max.score(df_all_by_all=scores_data))
             for seq_id in _max.cluster:
                 output += "%s\t" % seq_id
             output = "%s\n" % output.strip()
