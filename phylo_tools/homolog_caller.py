@@ -3,10 +3,11 @@
 # Created on: Apr 27 2015 
 
 """
-DESCRIPTION OF PROGRAM
+Convert an all-by-all scores matrix into groups. MCMCMC-driven MCL is the basic work horse for clustering, and then
+the groups are refined further to include singletons and doublets and/or be broken up into cliques, where appropriate.
 """
+
 # Std library
-import sys
 import os
 import re
 from copy import copy
@@ -19,6 +20,7 @@ from math import floor
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
+import scipy.stats
 
 # My packages
 import mcmcmc
@@ -30,8 +32,8 @@ class Clusters:
         with open(path, "r") as _ifile:
             self.input = _ifile.read()
 
-        self.clusters = self.input.strip().split(group_split)
-        self.clusters = [Cluster([y for y in x.strip().split(gene_split)]) for x in self.clusters]
+        clusters = self.input.strip().split(group_split)
+        self.clusters = [Cluster([y for y in x.strip().split(gene_split)]) for x in clusters]
         self.size = 0.
         for group in self.clusters:
             self.size += group.len
@@ -39,12 +41,12 @@ class Clusters:
         self.printer = MyFuncs.DynamicPrint()
         self.taxa_split = taxa_split
 
-    def score_all_clusters(self, df_all_by_all=None):
+    def score_all_clusters(self):
         score = 0
         taxa = pd.Series()
         for cluster in self.clusters:
             # Weight each score by cluster size. Final score max = 1.0, min = 0.0
-            score += cluster.score(self.taxa_split, df_all_by_all=df_all_by_all) * (cluster.len / self.size)
+            score += cluster.score() * (cluster.len / self.size)
             temp_taxa = [x.split(self.taxa_split)[0] for x in cluster.cluster]
             temp_taxa = pd.Series(temp_taxa)
             taxa = pd.concat([taxa, temp_taxa])
@@ -72,14 +74,15 @@ class Clusters:
 
 
 class Cluster:
-    def __init__(self, cluster):
+    def __init__(self, cluster, taxa_split="-"):
         cluster.sort()
         self.cluster = cluster
         self.len = len(self.cluster)
         self.name = ""
+        self.taxa_split = taxa_split
 
-    def score(self, taxa_split="-", df_all_by_all=None):
-        taxa = [x.split(taxa_split)[0] for x in self.cluster]
+    def score(self):
+        taxa = [x.split(self.taxa_split)[0] for x in self.cluster]
         taxa = pd.Series(taxa)
 
         if len(taxa) == 1:
@@ -98,15 +101,6 @@ class Cluster:
                 raise ValueError("A taxon was found with %s records" % taxon)
 
         score += singles ** 2
-
-        # Include score for cliques
-        if df_all_by_all:
-            cluster_copy = copy(self.cluster)
-            data_frame = copy(df_all_by_all)
-            data_frame.columns = [0, 1, 2]
-            clique_score = 0
-            while len(cluster_copy):
-                break
 
         return score
 
@@ -134,12 +128,12 @@ def split_all_by_all(data_frame, remove_list):
 
 
 def mcmcmc_mcl(args, params):
-    I, gq = args
+    inflation, gq = args
     external_tmp_dir, min_score, all_by_all = params
     mcl_tmp_dir = MyFuncs.TempDir()
 
     _output = Popen("mcl %s/input.csv --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" %
-                    (external_tmp_dir, gq, I, mcl_tmp_dir.path), shell=True, stderr=PIPE).communicate()
+                    (external_tmp_dir, gq, inflation, mcl_tmp_dir.path), shell=True, stderr=PIPE).communicate()
 
     _output = _output[1].decode()
 
@@ -147,7 +141,7 @@ def mcmcmc_mcl(args, params):
         return min_score
 
     clusters = Clusters("%s/output.groups" % mcl_tmp_dir.path)
-    score = clusters.score_all_clusters(all_by_all)
+    score = clusters.score_all_clusters()
 
     with lock:
         with open("%s/max.txt" % external_tmp_dir, "r") as _ifile:
@@ -162,11 +156,123 @@ def mcmcmc_mcl(args, params):
     return score
 
 
-def clique_checker(cluster, df_all_by_all, taxa_split="-"):
-    genes = pd.DataFrame([x.split(taxa_split) for x in cluster.cluster])
+def clique_checker(cluster, df_all_by_all):
+    valve = MyFuncs.SafetyValve(50)
+    genes = pd.DataFrame([x.split(cluster.taxa_split) for x in cluster.cluster])
     genes.columns = ["taxa", "gene"]
 
-    return 10
+    duplicates = []
+    in_dict = {}
+    cliques = []
+
+    # pull out all genes with replicate taxa
+    for taxa, num in genes['taxa'].value_counts().iteritems():
+        if num > 1:
+            taxa = genes.loc[genes["taxa"] == taxa]
+            for j, rec in taxa.iterrows():
+                gene = "%s-%s" % (rec["taxa"], rec["gene"])
+                duplicates.append(gene)
+
+    # Find best hits for all duplicate genes
+    def get_best_hit(_gene):
+        _best_hit = df_all_by_all[(df_all_by_all[0] == _gene) | (df_all_by_all[1] == _gene)]
+        _best_hit.columns = ["subj", "query", "score"]
+        _best_hit = _best_hit.loc[_best_hit["score"] == max(_best_hit["score"])].values[0]
+        return _best_hit
+
+    for gene in duplicates:
+        best_hit = get_best_hit(gene)
+        in_dict[gene] = (best_hit[0], best_hit[2]) if best_hit[1] == gene else (best_hit[1], best_hit[2])
+
+    # Iterate through in_dict and pull in all genes to fill out all best-hit sub-graphs from duplicates
+    in_dict_length = len(in_dict)
+    while True:
+        copy_in_dict = copy(in_dict)
+        valve.step()
+        for indx, value in copy_in_dict.items():
+            if value[0] not in in_dict:
+                best_hit = get_best_hit(value[0])
+                in_dict[value[0]] = (best_hit[0], best_hit[2]) if best_hit[1] == value[0] else (best_hit[1], best_hit[2])
+
+        if in_dict_length == len(in_dict):
+            break
+        else:
+            in_dict_length = len(in_dict)
+
+    # Separate all sub-graphs (i.e., cliques) into lists
+    while len(in_dict):
+        valve.step()
+        copy_in_dict = copy(in_dict)
+        for indx, value in copy_in_dict.items():
+            in_clique = False
+
+            for j, clique in enumerate(cliques):
+                if indx in clique or value[0] in clique:
+                    if type(in_clique) != int:
+                        in_clique = j
+                        cliques[j] = list({indx, value[0]}.union(set(cliques[j])))
+                        del in_dict[indx]
+
+                    else:
+                        cliques[in_clique] = list(set(cliques[in_clique]).union(set(cliques[j])))
+                        del cliques[j]
+                        break
+
+            if type(in_clique) != int:
+                del in_dict[indx]
+                cliques.append([indx, value[0]])
+
+    # Strip out any 'cliques' that contain less than 3 genes
+    while True:
+        valve.step()
+        for j, clique in enumerate(cliques):
+            if len(clique) < 3:
+                del cliques[j]
+                break
+        break
+
+    final_cliques = []
+
+    for clique in cliques:
+        total_scores = pd.DataFrame()
+        if len(clique) < 3:
+            continue
+
+        for gene in clique:
+            scores = df_all_by_all[df_all_by_all[0] == gene]
+            scores = scores[scores[1].isin(cluster.cluster)]
+            tmp = df_all_by_all[df_all_by_all[1] == gene]
+            tmp = tmp[tmp[0].isin(cluster.cluster)]
+            scores = pd.concat([scores, tmp])
+            total_scores = total_scores.append(scores)
+
+        clique_scores = total_scores[(total_scores[0].isin(clique)) & (total_scores[1].isin(clique))]
+        total_scores = total_scores.drop(clique_scores.index.values)
+
+        # if a clique is found that pulls in ever single gene, skip
+        if not len(total_scores):
+            continue
+
+        total_kde = scipy.stats.gaussian_kde(total_scores[2], bw_method='silverman')
+
+        clique_kde = scipy.stats.gaussian_kde(clique_scores[2], bw_method='silverman')
+        clique_resample = clique_kde.resample(10000)
+        clique95 = [scipy.stats.scoreatpercentile(clique_resample, 2.5), scipy.stats.scoreatpercentile(clique_resample, 97.5)]
+
+        integrated = total_kde.integrate_box_1d(clique95[0], clique95[1])
+        if integrated < 0.05:
+            final_cliques.append(clique)
+
+    if final_cliques:
+        for clique in final_cliques:
+            cluster.cluster = [x for x in cluster.cluster if x not in clique]
+
+        final_cliques = [Cluster(x) for x in final_cliques]
+        for j, clique in enumerate(final_cliques):
+            clique.name = "%s_c%s" % (cluster.name, j + 1)
+
+    final_cliques.append(cluster)
+    return final_cliques
 
 
 def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_all=None, save=False, steps=1000):
@@ -203,12 +309,11 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
     mcmcmc_output = pd.read_csv("%s/mcmcmc_out.csv" % temp_dir.path, "\t")
 
     best_score = max(mcmcmc_output["result"])
-    if best_score <= cluster.score(df_all_by_all=global_all_by_all):
-        cliques = clique_checker(cluster, local_all_by_all)
-        sys.exit(cliques)
-        cluster_list.append(cluster)
+    if best_score <= cluster.score():
+        cluster_list += clique_checker(cluster, local_all_by_all)
         if save:
             temp_dir.save("%s/group_%s" % (save, rank))
+
         return cluster_list
 
     mcl_clusters = Clusters("%s/output.groups" % temp_dir.path)
@@ -289,6 +394,8 @@ def merge_singles(clusters, scores):
         for group in data:
             df = df.append(group)
 
+        # print("%s\n%s" % (df.observations, df.grouplabel))
+
         result = sm.stats.multicomp.pairwise_tukeyhsd(df.observations, df.grouplabel)
 
         for line in str(result).split("\n")[4:-1]:
@@ -344,7 +451,7 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
         ####
         _output = ""
         for _clust in sample_clusters:
-            _output += "group_%s\t%s\t" % (_clust.name, _clust.score(df_all_by_all=all_by_all))
+            _output += "group_%s\t%s\t" % (_clust.name, _clust.score())
             for _seq_id in _clust.cluster:
                 _output += "%s\t" % _seq_id
             _output = "%s\n" % _output.strip()
@@ -395,8 +502,10 @@ if __name__ == '__main__':
         groups = groups.strip().split("\n")
         final_clusters = [group.strip().split("\t") for group in groups]
         for i, clust in enumerate(final_clusters):
-            final_clusters[i] = Cluster(clust[2:])
-            final_clusters[i].name = clust[0]
+            name = clust[0]
+            clust = Cluster(clust[2:])
+            clust.name = name
+            final_clusters[i] = clust
 
         final_clusters = jackknife(final_clusters, scores_data, 100)
         for clust in final_clusters:
@@ -410,7 +519,7 @@ if __name__ == '__main__':
 
         output = ""
         for clust in final_clusters:
-            output += "group_%s\t%s\t" % (clust.name, clust.score(df_all_by_all=scores_data))
+            output += "group_%s\t%s\t" % (clust.name, clust.score())
             for seq_id in clust.cluster:
                 output += "%s\t" % seq_id
             output = "%s\n" % output.strip()
@@ -418,6 +527,7 @@ if __name__ == '__main__':
         # Try to fold singletons and doublets back into groups.
         final_clusters = merge_singles(final_clusters, scores_data)
 
+        # Format the clusters and output to stdout or file
         output = ""
         while len(final_clusters) > 0:
             _max = (0, 0)
@@ -427,7 +537,7 @@ if __name__ == '__main__':
 
             ind, _max = _max[0], final_clusters[_max[0]]
             del final_clusters[ind]
-            output += "group_%s\t%s\t" % (_max.name, _max.score(df_all_by_all=scores_data))
+            output += "group_%s\t%s\t" % (_max.name, _max.score())
             for seq_id in _max.cluster:
                 output += "%s\t" % seq_id
             output = "%s\n" % output.strip()
