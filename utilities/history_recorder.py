@@ -32,6 +32,10 @@ for skip in skip_commands:
     if search(skip, command):
         sys.exit()
 
+# To override skips, prepend :; to the front of command, and then strip those characters from the history
+if command[0:2] == ":;":
+    command = command[2:].strip()
+
 output = ":%s %s; %s" % (pid, date, command)
 
 current_file = "bash_history-%s" % time.strftime("%Y%m")
