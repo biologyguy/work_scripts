@@ -8,6 +8,7 @@ the groups are refined further to include singletons and doublets and/or be brok
 """
 
 # Std library
+import sys
 import os
 import re
 from copy import copy
@@ -28,12 +29,12 @@ import MyFuncs
 
 
 class Clusters:
-    def __init__(self, path, group_split="\n", gene_split="\t", taxa_split="-"):
+    def __init__(self, path, group_split="\n", gene_split="\t", taxa_split="-", global_taxa_count=None):
         with open(path, "r") as _ifile:
             self.input = _ifile.read()
 
         clusters = self.input.strip().split(group_split)
-        self.clusters = [Cluster([y for y in x.strip().split(gene_split)]) for x in clusters]
+        self.clusters = [Cluster([y for y in x.strip().split(gene_split)], global_taxa_count=global_taxa_count) for x in clusters]
         self.size = 0.
         for group in self.clusters:
             self.size += group.len
@@ -59,7 +60,7 @@ class Clusters:
                 _ofile.write("%s\n" % "\t".join(cluster.cluster))
         return
 
-    # The following are possible score modifier schemes to accoutn for group size
+    # The following are possible score modifier schemes to account for group size
     def gpt(self, score, taxa):  # groups per taxa
         genes_per_taxa = self.size / len(taxa.value_counts())
         num_clusters_modifier = abs(genes_per_taxa - len(self.clusters))
@@ -68,18 +69,19 @@ class Clusters:
 
     def srs(self, score):  # Square root sequences
         # print(len(self.clusters))
-        modifier = abs(self.size ** (1 / 2) - len(self.clusters)) ** 1.2
+        modifier = abs(self.size ** 0.5 - len(self.clusters)) ** 1.2
         score = round(score / len(self.clusters) - modifier, 2)
         return score
 
 
 class Cluster:
-    def __init__(self, cluster, taxa_split="-"):
+    def __init__(self, cluster, taxa_split="-", global_taxa_count=None):
         cluster.sort()
         self.cluster = cluster
         self.len = len(self.cluster)
         self.name = ""
         self.taxa_split = taxa_split
+        self.global_taxa_count = global_taxa_count
 
     def score(self):
         taxa = [x.split(self.taxa_split)[0] for x in self.cluster]
@@ -89,18 +91,24 @@ class Cluster:
             return 0
 
         score = 0
-        singles = 0
-        for taxon in taxa.value_counts():
-            if taxon == 1:
-                singles += 1
+        try:
+            for taxon, num in taxa.value_counts().iteritems():
+                if num == 1:
+                    score += self.global_taxa_count[taxon] ** 0.5
 
-            elif taxon > 1:
-                score -= taxon
+                else:
+                    score -= (1 / self.global_taxa_count[taxon] ** 0.5) * num * 2
 
-            else:
-                raise ValueError("A taxon was found with %s records" % taxon)
+        except TypeError:  # This happens if global_taxa_count is not set
+            singles = 0
+            for taxon, num in taxa.value_counts().iteritems():
+                if num == 1:
+                    singles += 1
 
-        score += singles ** 2
+                else:
+                    score -= num
+
+            score += singles ** 2
 
         return score
 
@@ -129,7 +137,7 @@ def split_all_by_all(data_frame, remove_list):
 
 def mcmcmc_mcl(args, params):
     inflation, gq = args
-    external_tmp_dir, min_score, all_by_all = params
+    external_tmp_dir, min_score, all_by_all, global_taxa_count = params
     mcl_tmp_dir = MyFuncs.TempDir()
 
     _output = Popen("mcl %s/input.csv --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" %
@@ -140,7 +148,7 @@ def mcmcmc_mcl(args, params):
     if re.search("\[mclvInflate\] warning", _output) and min_score:
         return min_score
 
-    clusters = Clusters("%s/output.groups" % mcl_tmp_dir.path)
+    clusters = Clusters("%s/output.groups" % mcl_tmp_dir.path, global_taxa_count=global_taxa_count)
     score = clusters.score_all_clusters()
 
     with lock:
@@ -157,32 +165,27 @@ def mcmcmc_mcl(args, params):
 
 
 def clique_checker(cluster, df_all_by_all):
-    valve = MyFuncs.SafetyValve(50)
-    genes = pd.DataFrame([x.split(cluster.taxa_split) for x in cluster.cluster])
-    genes.columns = ["taxa", "gene"]
-
-    duplicates = []
-    in_dict = {}
-    cliques = []
-
-    # pull out all genes with replicate taxa
-    for taxa, num in genes['taxa'].value_counts().iteritems():
-        if num > 1:
-            taxa = genes.loc[genes["taxa"] == taxa]
-            for j, rec in taxa.iterrows():
-                gene = "%s-%s" % (rec["taxa"], rec["gene"])
-                duplicates.append(gene)
-
-    # Find best hits for all duplicate genes
     def get_best_hit(_gene):
         _best_hit = df_all_by_all[(df_all_by_all[0] == _gene) | (df_all_by_all[1] == _gene)]
         _best_hit.columns = ["subj", "query", "score"]
         _best_hit = _best_hit.loc[_best_hit["score"] == max(_best_hit["score"])].values[0]
         return _best_hit
 
-    for gene in duplicates:
-        best_hit = get_best_hit(gene)
-        in_dict[gene] = (best_hit[0], best_hit[2]) if best_hit[1] == gene else (best_hit[1], best_hit[2])
+    valve = MyFuncs.SafetyValve(50)
+    genes = pd.DataFrame([x.split(cluster.taxa_split) for x in cluster.cluster])
+    genes.columns = ["taxa", "gene"]
+
+    in_dict = {}
+    cliques = []
+
+    # pull out all genes with replicate taxa and get best hits
+    for taxa, num in genes['taxa'].value_counts().iteritems():
+        if num > 1:
+            taxa = genes.loc[genes["taxa"] == taxa]
+            for j, rec in taxa.iterrows():
+                gene = "%s-%s" % (rec["taxa"], rec["gene"])
+                best_hit = get_best_hit(gene)
+                in_dict[gene] = (best_hit[0], best_hit[2]) if best_hit[1] == gene else (best_hit[1], best_hit[2])
 
     # Iterate through in_dict and pull in all genes to fill out all best-hit sub-graphs from duplicates
     in_dict_length = len(in_dict)
@@ -231,8 +234,9 @@ def clique_checker(cluster, df_all_by_all):
                 break
         break
 
+    # Get the similarity scores for within cliques and between cliques-remaining sequences, then generate kernel-density
+    # functions for both. The overlap between the two functions is used to determine whether they should be separated
     final_cliques = []
-
     for clique in cliques:
         total_scores = pd.DataFrame()
         if len(clique) < 3:
@@ -249,7 +253,7 @@ def clique_checker(cluster, df_all_by_all):
         clique_scores = total_scores[(total_scores[0].isin(clique)) & (total_scores[1].isin(clique))]
         total_scores = total_scores.drop(clique_scores.index.values)
 
-        # if a clique is found that pulls in ever single gene, skip
+        # if a clique is found that pulls in every single gene, skip
         if not len(total_scores):
             continue
 
@@ -275,7 +279,9 @@ def clique_checker(cluster, df_all_by_all):
     return final_cliques
 
 
-def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_all=None, save=False, steps=1000):
+def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_all=None, save=False, steps=1000,
+                   global_taxa_count=None):
+
     temp_dir = MyFuncs.TempDir()
 
     local_all_by_all.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
@@ -288,7 +294,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
             _ofile.write("-1000000000")
 
         mcmcmc_factory = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=steps, sample_rate=1,
-                                       params=["%s" % temp_dir.path, False, False], quiet=True,
+                                       params=["%s" % temp_dir.path, False, False, global_taxa_count], quiet=True,
                                        outfile="%s/mcmcmc_out.csv" % temp_dir.path)
 
     except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
@@ -302,7 +308,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
     for chain in mcmcmc_factory.chains:
         worst_score = chain.raw_min if chain.raw_min < worst_score else worst_score
 
-    mcmcmc_factory.reset_params(["%s" % temp_dir.path, worst_score, global_all_by_all])
+    mcmcmc_factory.reset_params(["%s" % temp_dir.path, worst_score, global_all_by_all, global_taxa_count])
 
     mcmcmc_factory.run()
 
@@ -316,7 +322,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
 
         return cluster_list
 
-    mcl_clusters = Clusters("%s/output.groups" % temp_dir.path)
+    mcl_clusters = Clusters("%s/output.groups" % temp_dir.path, global_taxa_count=global_taxa_count)
     _counter = 1
     for _clust in mcl_clusters.clusters:
         next_rank = "%s_%s" % (rank, _counter)
@@ -336,8 +342,8 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
         group_all_by_all[:][2] = re_norm
 
         # Recursion...
-        cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank,
-                                      global_all_by_all=global_all_by_all, save=save, steps=steps)
+        cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank, save=save, steps=steps,
+                                      global_all_by_all=global_all_by_all, global_taxa_count=global_taxa_count)
 
     if save:
         temp_dir.save("%s/group_%s" % (save, rank))
@@ -429,8 +435,16 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
     for _clust in orig_clusters:
         _clust.support = 0.
 
-    for _ in range(steps):
-        jn_sample = Cluster(sample(total_pop, sample_size))
+    taxa_list = []
+    for gene in total_pop:
+        taxa = gene.split("-")[0]
+        if taxa not in taxa_list:
+            taxa_list.append(taxa)
+
+    # for _ in range(steps):
+    for taxa in taxa_list:
+        jn_sample = Cluster([x for x in total_pop if x.split("-")[0] != taxa])
+        #jn_sample = Cluster(sample(total_pop, sample_size))
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["remaining"]
         sample_clusters = []
         sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=1000)
@@ -490,6 +504,10 @@ if __name__ == '__main__':
     master_cluster = master_cluster.value_counts()
     master_cluster = Cluster([i for i in master_cluster.index])
 
+    taxa_count = [x.split("-")[0] for x in master_cluster.cluster]
+    taxa_count = pd.Series(taxa_count)
+    taxa_count = taxa_count.value_counts()
+
     if in_args.save_temp_files:
         if not os.path.isdir(in_args.save_temp_files):
             os.makedirs(in_args.save_temp_files)
@@ -513,9 +531,11 @@ if __name__ == '__main__':
 
     else:
         print("Executing Homolog Caller...")
+
         final_clusters = []
         final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0, save=in_args.save_temp_files,
-                                        global_all_by_all=scores_data, steps=in_args.mcmcmc_steps)
+                                        global_all_by_all=scores_data, steps=in_args.mcmcmc_steps,
+                                        global_taxa_count=taxa_count)
 
         output = ""
         for clust in final_clusters:
