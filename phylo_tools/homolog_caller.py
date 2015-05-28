@@ -112,6 +112,11 @@ class Cluster:
 
         return score
 
+    def compare(self, query):
+        matches = set(self.cluster).intersection(query.cluster)
+        weighted_match = (len(matches) * 2.) / (self.len + query.len)
+        return weighted_match
+
     def __str__(self):
         return str(self.cluster)
 
@@ -426,6 +431,7 @@ def merge_singles(clusters, scores):
 
 
 def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
+    import compare_homolog_groups as chg
     total_pop = [x.cluster for x in orig_clusters]  # List of lists
     total_pop = [x for _clust in total_pop for x in _clust]  # Flatten to a 1D list
 
@@ -445,22 +451,18 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
     for taxa in taxa_list:
         jn_sample = Cluster([x for x in total_pop if x.split("-")[0] != taxa])
         #jn_sample = Cluster(sample(total_pop, sample_size))
-        samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["remaining"]
+        samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["removed"]
         sample_clusters = []
-        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=1000)
+        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=10)
         sample_clusters = merge_singles(sample_clusters, samp_all_by_all)
 
         for orig_clust in orig_clusters:
+            _best = 0
             for _clust in sample_clusters:
-                intersect = set(_clust.cluster).intersection(orig_clust.cluster)
-                if len(intersect) == 0:
-                    continue
-
-                elif len(intersect) != len(_clust.cluster):
-                    break
-
-                else:
-                    orig_clust.support += 1
+                support = orig_clust.compare(_clust)
+                if support < _best:
+                    _best = support
+            orig_clust.support += _best
 
         ####
         _output = ""
@@ -473,7 +475,7 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
         ######
 
     for _clust in orig_clusters:
-        _clust.support /= steps
+        _clust.support /= len(taxa_list) - 1
 
     return orig_clusters
 
