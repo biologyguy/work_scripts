@@ -115,6 +115,7 @@ class Cluster:
     def compare(self, query):
         matches = set(self.cluster).intersection(query.cluster)
         weighted_match = (len(matches) * 2.) / (self.len + query.len)
+        print("name: %s, matches: %s, weighted_match: %s" % (self.name, len(matches), weighted_match))
         return weighted_match
 
     def __str__(self):
@@ -431,7 +432,6 @@ def merge_singles(clusters, scores):
 
 
 def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
-    import compare_homolog_groups as chg
     total_pop = [x.cluster for x in orig_clusters]  # List of lists
     total_pop = [x for _clust in total_pop for x in _clust]  # Flatten to a 1D list
 
@@ -453,16 +453,39 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
         #jn_sample = Cluster(sample(total_pop, sample_size))
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["removed"]
         sample_clusters = []
-        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=10)
+        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=100)
         sample_clusters = merge_singles(sample_clusters, samp_all_by_all)
 
         for orig_clust in orig_clusters:
-            _best = 0
-            for _clust in sample_clusters:
-                support = orig_clust.compare(_clust)
-                if support < _best:
-                    _best = support
-            orig_clust.support += _best
+            orig_copy = copy(orig_clust)
+            orig_copy.cluster = [x for x in orig_clust.cluster if x[:3] != taxa]
+            orig_copy.len = len(orig_copy.cluster)
+            len_subj = orig_copy.len
+            tally = 0.
+
+            # This is inefficient, bc it iterates from the top of query list every time... Need a way to better manage
+            # search if this ever starts to be used regularly. Possibly by converting Clusters.clusters to to a set()
+            for query in sample_clusters:
+                query.cluster = [x for x in query.cluster if x[:3] != taxa]
+                query.len = len(query.cluster)
+                matches = len(set(orig_copy.cluster).intersection(query.cluster))
+                if matches > 0:
+                    len_subj -= matches
+
+                    # Weighting: combine both groups together, then divide the number of paired genes by the total num.
+                    # Finally, weight against the size of the reference cluster.
+                    weighted_match = matches / orig_copy.len
+                    weighted_match **= 2
+                    weighted_match *= (matches * 2.) / (orig_copy.len + query.len)
+                    tally += weighted_match
+
+                    if orig_copy.name == "group_0_7":
+                        print("%s, %s, %s, %s" % (round(tally, 3), matches, orig_copy.len, query.len))
+
+                    if len_subj == 0:
+                        break
+
+            orig_clust.support += tally
 
         ####
         _output = ""
@@ -474,8 +497,9 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
         print(_output)
         ######
 
+        #break  # !!!
     for _clust in orig_clusters:
-        _clust.support /= len(taxa_list) - 1
+        _clust.support /= len(taxa_list)
 
     return orig_clusters
 
