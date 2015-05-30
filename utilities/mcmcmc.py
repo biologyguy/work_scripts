@@ -18,7 +18,7 @@ from copy import deepcopy
 from multiprocessing import Process
 
 
-class Variable():
+class Variable:
     def __init__(self, _name, _min, _max, variance_covariate=0.05):
         self.name = _name
         self.min = _min
@@ -69,8 +69,8 @@ class Variable():
         return
 
 
-class _Chain():
-    def __init__(self, variables, function, params=False, quiet=False):
+class _Chain:
+    def __init__(self, variables, function, params=None, quiet=False):
         self.variables = variables
         self.function = function
         self.params = params
@@ -177,8 +177,8 @@ class _Chain():
         return output
 
 
-class MCMCMC():
-    def __init__(self, variables, function, params=False, steps=10000, sample_rate=100, num_chains=3,
+class MCMCMC:
+    def __init__(self, variables, function, params=None, steps=10000, sample_rate=1, num_chains=3,
                  outfile='./mcmcmc_out.csv', burn_in=100, quiet=False):
 
         self.global_variables = variables
@@ -203,7 +203,7 @@ class MCMCMC():
         self.burn_in = burn_in
 
         self.samples = {"vars": [], "score": []}
-        self.printer = DynamicPrint()
+        self.printer = DynamicPrint("stderr")
 
     def run(self):
         """
@@ -344,7 +344,7 @@ class MCMCMC():
 
             self.printer.write("%5.0f: %8.3f\t(%s)" % (counter, round(self.chains[0].current_raw_score, 3), printer_vars.strip()))
             counter += 1
-        print()
+        self.printer.new_line()
         return
 
     def reset_params(self, params):
@@ -352,6 +352,10 @@ class MCMCMC():
         :param params: list of new input parameters pushed to chains
         :return: None
         """
+        if len(params) != len(self.chains[0].params):
+            raise AttributeError("To many params supplied in reset_params().\n%s expected\n%s supplied\n%s"
+                                 % (len(self.chains[0].params), len(params), str(params)))
+
         for _chain in self.chains:
             _chain.params = params
         return
