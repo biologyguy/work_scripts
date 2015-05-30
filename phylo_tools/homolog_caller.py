@@ -34,7 +34,8 @@ class Clusters:
             self.input = _ifile.read()
 
         clusters = self.input.strip().split(group_split)
-        self.clusters = [Cluster([y for y in x.strip().split(gene_split)], global_taxa_count=global_taxa_count) for x in clusters]
+        self.clusters = [Cluster([y for y in x.strip().split(gene_split)], global_taxa_count=global_taxa_count)
+                         for x in clusters]
         self.size = 0.
         for group in self.clusters:
             self.size += group.len
@@ -171,8 +172,8 @@ def mcmcmc_mcl(args, params):
 
 
 def clique_checker(cluster, df_all_by_all):
-    def get_best_hit(_gene):
-        _best_hit = df_all_by_all[(df_all_by_all[0] == _gene) | (df_all_by_all[1] == _gene)]
+    def get_best_hit(gene_name):
+        _best_hit = df_all_by_all[(df_all_by_all[0] == gene_name) | (df_all_by_all[1] == gene_name)]
         _best_hit.columns = ["subj", "query", "score"]
         _best_hit = _best_hit.loc[_best_hit["score"] == max(_best_hit["score"])].values[0]
         return _best_hit
@@ -189,9 +190,9 @@ def clique_checker(cluster, df_all_by_all):
         if num > 1:
             taxa = genes.loc[genes["taxa"] == taxa]
             for j, rec in taxa.iterrows():
-                gene = "%s-%s" % (rec["taxa"], rec["gene"])
-                best_hit = get_best_hit(gene)
-                in_dict[gene] = (best_hit[0], best_hit[2]) if best_hit[1] == gene else (best_hit[1], best_hit[2])
+                _gene = "%s-%s" % (rec["taxa"], rec["gene"])
+                best_hit = get_best_hit(_gene)
+                in_dict[_gene] = (best_hit[0], best_hit[2]) if best_hit[1] == _gene else (best_hit[1], best_hit[2])
 
     # Iterate through in_dict and pull in all genes to fill out all best-hit sub-graphs from duplicates
     in_dict_length = len(in_dict)
@@ -199,9 +200,10 @@ def clique_checker(cluster, df_all_by_all):
         copy_in_dict = copy(in_dict)
         valve.step()
         for indx, value in copy_in_dict.items():
-            if value[0] not in in_dict:
-                best_hit = get_best_hit(value[0])
-                in_dict[value[0]] = (best_hit[0], best_hit[2]) if best_hit[1] == value[0] else (best_hit[1], best_hit[2])
+            _gene = value[0]
+            if _gene not in in_dict:
+                best_hit = get_best_hit(_gene)
+                in_dict[_gene] = (best_hit[0], best_hit[2]) if best_hit[1] == _gene else (best_hit[1], best_hit[2])
 
         if in_dict_length == len(in_dict):
             break
@@ -248,10 +250,10 @@ def clique_checker(cluster, df_all_by_all):
         if len(clique) < 3:
             continue
 
-        for gene in clique:
-            scores = df_all_by_all[df_all_by_all[0] == gene]
+        for _gene in clique:
+            scores = df_all_by_all[df_all_by_all[0] == _gene]
             scores = scores[scores[1].isin(cluster.cluster)]
-            tmp = df_all_by_all[df_all_by_all[1] == gene]
+            tmp = df_all_by_all[df_all_by_all[1] == _gene]
             tmp = tmp[tmp[0].isin(cluster.cluster)]
             scores = pd.concat([scores, tmp])
             total_scores = total_scores.append(scores)
@@ -267,7 +269,8 @@ def clique_checker(cluster, df_all_by_all):
 
         clique_kde = scipy.stats.gaussian_kde(clique_scores[2], bw_method='silverman')
         clique_resample = clique_kde.resample(10000)
-        clique95 = [scipy.stats.scoreatpercentile(clique_resample, 2.5), scipy.stats.scoreatpercentile(clique_resample, 97.5)]
+        clique95 = [scipy.stats.scoreatpercentile(clique_resample, 2.5),
+                    scipy.stats.scoreatpercentile(clique_resample, 97.5)]
 
         integrated = total_kde.integrate_box_1d(clique95[0], clique95[1])
         if integrated < 0.05:
@@ -445,19 +448,19 @@ def jackknife(orig_clusters, all_by_all, steps=10, level=0.632):
         _clust.gene_support = pd.DataFrame(columns=_clust.cluster)
 
     taxa_list = []
-    for gene in total_pop:
-        taxa = gene.split("-")[0]
+    for _gene in total_pop:
+        taxa = _gene.split("-")[0]
         if taxa not in taxa_list:
             taxa_list.append(taxa)
 
-    for _ in range(steps):
     # for taxa in taxa_list:
+    for _ in range(steps):
         # jn_sample = Cluster([x for x in total_pop if x.split("-")[0] != taxa])
         jn_sample = Cluster(sample(total_pop, sample_size))
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["removed"]
 
         sample_clusters = []
-        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=1000)
+        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=100)
         sample_clusters = merge_singles(sample_clusters, samp_all_by_all)
 
         for orig_clust in orig_clusters:
@@ -483,9 +486,9 @@ def jackknife(orig_clusters, all_by_all, steps=10, level=0.632):
                     tally += weighted_match
 
                     # track genes support
-                    for gene in set(orig_copy.cluster).intersection(query.cluster):
-                        row_ind = len(orig_clust.gene_support[gene])
-                        orig_clust.gene_support.set_value(row_ind, gene, matches / orig_copy.len)
+                    for _gene in set(orig_copy.cluster).intersection(query.cluster):
+                        row_ind = len(orig_clust.gene_support[_gene])
+                        orig_clust.gene_support.set_value(row_ind, _gene, matches / orig_copy.len)
 
                     if len_subj == 0:
                         break
@@ -500,17 +503,19 @@ def jackknife(orig_clusters, all_by_all, steps=10, level=0.632):
             for _seq_id in _clust.cluster:
                 _output += "%s\t" % _seq_id
             _output = "%s\n" % _output.strip()
-        #print(_output)
+        print(_output)
         ######
 
     return orig_clusters
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(prog="homolog_caller", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(prog="homolog_caller", description="",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("all_by_all_file", help="Location of all-by-all scores file", action="store")
-    parser.add_argument("output_file", help="Where should groups be written to? Default to stdout.", action="store", nargs="?")
+    parser.add_argument("output_file", action="store", nargs="?",
+                        help="Where should groups be written to? Default to stdout.")
     parser.add_argument("-jk", "--jackknife", help="Find support for previous run.", metavar="<Groups file>")
     parser.add_argument("-mcs", "--mcmcmc_steps", default=1000, type=int,
                         help="Specify how deeply to sample MCL parameters")
@@ -553,7 +558,7 @@ if __name__ == '__main__':
             clust.name = name
             final_clusters[i] = clust
 
-        final_clusters = jackknife(final_clusters, scores_data, steps=1000)
+        final_clusters = jackknife(final_clusters, scores_data, steps=2)
         for clust in final_clusters:
             print("%s: %s (±%s)" % (clust.name, clust.support.mean(), clust.support.std()))
             for gene in clust.cluster:
