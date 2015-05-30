@@ -12,7 +12,7 @@ import string
 from random import choice
 
 
-class Timer():
+class Timer:
     def __init__(self):
         self.current_time = round(time())
 
@@ -25,7 +25,7 @@ class Timer():
 
 
 # maybe use curses library in the future to extend this for multi-line printing
-class DynamicPrint():
+class DynamicPrint:
     def __init__(self, out_type="stdout"):
         self._last_print = ""
         self._next_print = ""
@@ -81,6 +81,14 @@ def pretty_time(seconds):
         output = "%i days, %i hrs, %i min, %i sec" % (days, hours, minutes, seconds)
         
     return output
+
+
+def pretty_number(num):
+    magnitude = 0
+    while abs(num) >= 1000 and magnitude < 11:
+        magnitude += 1
+        num /= 1000.0
+    return '%.2f %s' % (num, ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'X', 'S', 'D'][magnitude])
 
 
 def usable_cpu_count():
@@ -189,7 +197,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
         return
 
 
-class TempDir():
+class TempDir:
     def __init__(self):
         self.dir = next(self._make_dir())
         self.path = self.dir.name
@@ -226,7 +234,7 @@ class TempDir():
             return True
 
 
-class TempFile():
+class TempFile:
     # I really don't like the behavior of tempfile.[Named]TemporaryFile(), so hack TemporaryDirectory() via TempDir()
     def __init__(self):
         self._tmp_dir = TempDir()  # This needs to be a persistent (ie self.) variable, or the directory will be deleted
@@ -278,7 +286,7 @@ class TempFile():
         return
 
 
-class SafetyValve():  # Use this class if you're afraid of an infinit loop
+class SafetyValve:  # Use this class if you're afraid of an infinit loop
     def __init__(self, global_reps=1000, state_reps=10, counter=0):
         self.counter = counter
         
@@ -305,7 +313,6 @@ class SafetyValve():  # Use this class if you're afraid of an infinit loop
             
         if self.state_reps == 0:
             exit("Error: You just popped your state_reps safety valve. %s" % message)
-
 
 # Pulled this function off of Stack Overflow -- posted by nosklo
 # Note that this is a generator, so need to use next() or `with` to get a result
@@ -351,3 +358,5 @@ def normalize(data, trim_ends=1.0):
             data[i] = 0. if data[i] < 0. else data[i]
 
     return data
+
+print(pretty_number(12351353474534645635531))
