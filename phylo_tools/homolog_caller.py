@@ -434,38 +434,48 @@ def merge_singles(clusters, scores):
     return clusters
 
 
-def jackknife(orig_clusters, all_by_all, steps=10, level=0.632):
+def support(orig_clusters, all_by_all, mode, mcmcmc_steps, num_samples, level=0.632):
     total_pop = [x.cluster for x in orig_clusters]  # List of lists
     total_pop = [x for _clust in total_pop for x in _clust]  # Flatten to a 1D list
 
-    sample_size = floor(level * len(total_pop))
-
     for _clust in orig_clusters:
-        # Add a new 'support' attribute to each Cluster object to be filled in with each step
+        # Add a new 'support' attribute to each Cluster object which will be appended to at each step
         _clust.support = pd.Series()
-
-        # Create a dataframe to keep trace of support for each individual gene
+        # Create a dataframe to keep track of support for each individual gene
         _clust.gene_support = pd.DataFrame(columns=_clust.cluster)
 
-    taxa_list = []
-    for _gene in total_pop:
-        taxa = _gene.split("-")[0]
-        if taxa not in taxa_list:
-            taxa_list.append(taxa)
+    # If new ways to subsample the total population are dreamed up, create another sample_generator here...
+    if mode == "taxa":
+        taxa_list = []
+        for _gene in total_pop:
+            taxa = _gene.split("-")[0]
+            if taxa not in taxa_list:
+                taxa_list.append(taxa)
 
-    # for taxa in taxa_list:
-    for _ in range(steps):
-        # jn_sample = Cluster([x for x in total_pop if x.split("-")[0] != taxa])
-        jn_sample = Cluster(sample(total_pop, sample_size))
+        def sample_generator():
+            for _taxa in taxa_list:
+                yield Cluster([x for x in total_pop if x.split("-")[0] != _taxa])
+
+    elif mode == "jackknife":
+        sample_size = floor(level * len(total_pop))
+
+        def sample_generator():
+            for _ in range(num_samples):
+                yield Cluster(sample(total_pop, sample_size))
+
+    else:
+        raise ValueError("Mode '%s' not supported." % mode)
+
+    samples = sample_generator()
+    for jn_sample in samples:
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["removed"]
 
         sample_clusters = []
-        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=100)
+        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=mcmcmc_steps)
         sample_clusters = merge_singles(sample_clusters, samp_all_by_all)
 
         for orig_clust in orig_clusters:
             orig_copy = copy(orig_clust)
-            # orig_copy.cluster = [x for x in orig_clust.cluster if x[:3] != taxa]
             orig_copy.cluster = [x for x in orig_clust.cluster if x in jn_sample.cluster]
             orig_copy.len = len(orig_copy.cluster)
             if orig_copy.len == 0:
@@ -474,7 +484,6 @@ def jackknife(orig_clusters, all_by_all, steps=10, level=0.632):
             tally = 0.
 
             for query in sample_clusters:
-                # query.cluster = [x for x in query.cluster if x[:3] != taxa]
                 query.cluster = [x for x in query.cluster if x in jn_sample.cluster]
                 query.len = len(query.cluster)
                 matches = len(set(orig_copy.cluster).intersection(query.cluster))
@@ -517,6 +526,9 @@ if __name__ == '__main__':
     parser.add_argument("output_file", action="store", nargs="?",
                         help="Where should groups be written to? Default to stdout.")
     parser.add_argument("-jk", "--jackknife", help="Find support for previous run.", metavar="<Groups file>")
+    parser.add_argument("-sm", "--support_mode", choices=["taxa", "jackknife"], default="taxa",
+                        help="Select the method for calculating support values.")
+    parser.add_argument("-ss", "--support_steps", type=int, default=100, help="How many jackknife replicates?")
     parser.add_argument("-mcs", "--mcmcmc_steps", default=1000, type=int,
                         help="Specify how deeply to sample MCL parameters")
     parser.add_argument("-sep", "--separator", action="store", default="\t",
@@ -546,7 +558,7 @@ if __name__ == '__main__':
             os.makedirs(in_args.save_temp_files)
 
     if in_args.jackknife:
-        print("Preparing Jackknife support values")
+        print("Preparing support values in '%s' mode" % in_args.support_mode)
         with open(in_args.jackknife, "r") as ifile:
             groups = ifile.read()
 
@@ -558,7 +570,9 @@ if __name__ == '__main__':
             clust.name = name
             final_clusters[i] = clust
 
-        final_clusters = jackknife(final_clusters, scores_data, steps=2)
+        final_clusters = support(final_clusters, scores_data, in_args.support_mode,
+                                 in_args.support_steps, in_args.mcmcmc_steps)
+
         for clust in final_clusters:
             print("%s: %s (±%s)" % (clust.name, clust.support.mean(), clust.support.std()))
             for gene in clust.cluster:
