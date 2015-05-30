@@ -431,15 +431,18 @@ def merge_singles(clusters, scores):
     return clusters
 
 
-def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
+def jackknife(orig_clusters, all_by_all, steps=10, level=0.632):
     total_pop = [x.cluster for x in orig_clusters]  # List of lists
     total_pop = [x for _clust in total_pop for x in _clust]  # Flatten to a 1D list
 
     sample_size = floor(level * len(total_pop))
 
-    # Add a new 'support' attribute to each Cluster object to be filled in with each step
     for _clust in orig_clusters:
-        _clust.support = 0.
+        # Add a new 'support' attribute to each Cluster object to be filled in with each step
+        _clust.support = pd.Series()
+
+        # Create a dataframe to keep trace of support for each individual gene
+        _clust.gene_support = pd.DataFrame(columns=_clust.cluster)
 
     taxa_list = []
     for gene in total_pop:
@@ -447,45 +450,48 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
         if taxa not in taxa_list:
             taxa_list.append(taxa)
 
-    # for _ in range(steps):
-    for taxa in taxa_list:
-        jn_sample = Cluster([x for x in total_pop if x.split("-")[0] != taxa])
-        #jn_sample = Cluster(sample(total_pop, sample_size))
+    for _ in range(steps):
+    # for taxa in taxa_list:
+        # jn_sample = Cluster([x for x in total_pop if x.split("-")[0] != taxa])
+        jn_sample = Cluster(sample(total_pop, sample_size))
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["removed"]
+
         sample_clusters = []
-        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=100)
+        sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=1000)
         sample_clusters = merge_singles(sample_clusters, samp_all_by_all)
 
         for orig_clust in orig_clusters:
             orig_copy = copy(orig_clust)
-            orig_copy.cluster = [x for x in orig_clust.cluster if x[:3] != taxa]
+            # orig_copy.cluster = [x for x in orig_clust.cluster if x[:3] != taxa]
+            orig_copy.cluster = [x for x in orig_clust.cluster if x in jn_sample.cluster]
             orig_copy.len = len(orig_copy.cluster)
+            if orig_copy.len == 0:
+                continue
             len_subj = orig_copy.len
             tally = 0.
 
-            # This is inefficient, bc it iterates from the top of query list every time... Need a way to better manage
-            # search if this ever starts to be used regularly. Possibly by converting Clusters.clusters to to a set()
             for query in sample_clusters:
-                query.cluster = [x for x in query.cluster if x[:3] != taxa]
+                # query.cluster = [x for x in query.cluster if x[:3] != taxa]
+                query.cluster = [x for x in query.cluster if x in jn_sample.cluster]
                 query.len = len(query.cluster)
                 matches = len(set(orig_copy.cluster).intersection(query.cluster))
                 if matches > 0:
                     len_subj -= matches
-
-                    # Weighting: combine both groups together, then divide the number of paired genes by the total num.
-                    # Finally, weight against the size of the reference cluster.
                     weighted_match = matches / orig_copy.len
                     weighted_match **= 2
                     weighted_match *= (matches * 2.) / (orig_copy.len + query.len)
                     tally += weighted_match
 
-                    if orig_copy.name == "group_0_7":
-                        print("%s, %s, %s, %s" % (round(tally, 3), matches, orig_copy.len, query.len))
+                    # track genes support
+                    for gene in set(orig_copy.cluster).intersection(query.cluster):
+                        row_ind = len(orig_clust.gene_support[gene])
+                        orig_clust.gene_support.set_value(row_ind, gene, matches / orig_copy.len)
 
                     if len_subj == 0:
                         break
-
-            orig_clust.support += tally
+            if tally == 0:
+                raise ValueError("Why is tally 0??")
+            orig_clust.support = orig_clust.support.append(pd.Series([tally]))
 
         ####
         _output = ""
@@ -494,12 +500,8 @@ def jackknife(orig_clusters, all_by_all, steps=1000, level=0.632):
             for _seq_id in _clust.cluster:
                 _output += "%s\t" % _seq_id
             _output = "%s\n" % _output.strip()
-        print(_output)
+        #print(_output)
         ######
-
-        #break  # !!!
-    for _clust in orig_clusters:
-        _clust.support /= len(taxa_list)
 
     return orig_clusters
 
@@ -551,10 +553,12 @@ if __name__ == '__main__':
             clust.name = name
             final_clusters[i] = clust
 
-        final_clusters = jackknife(final_clusters, scores_data, 100)
+        final_clusters = jackknife(final_clusters, scores_data, steps=1000)
         for clust in final_clusters:
-            print("%s: %s" % (clust.name, clust.support))
-
+            print("%s: %s (±%s)" % (clust.name, clust.support.mean(), clust.support.std()))
+            for gene in clust.cluster:
+                print("%s: %s" % (gene, round(clust.gene_support[gene].mean(), 3)))
+            print("")
     else:
         print("Executing Homolog Caller...")
 
