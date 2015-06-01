@@ -434,7 +434,7 @@ def merge_singles(clusters, scores):
     return clusters
 
 
-def support(orig_clusters, all_by_all, mode, mcmcmc_steps, num_samples, level=0.632):
+def support(orig_clusters, all_by_all, mode, num_samples, mcmcmc_steps, level=0.90):  # level=0.632
     total_pop = [x.cluster for x in orig_clusters]  # List of lists
     total_pop = [x for _clust in total_pop for x in _clust]  # Flatten to a 1D list
 
@@ -497,7 +497,11 @@ def support(orig_clusters, all_by_all, mode, mcmcmc_steps, num_samples, level=0.
                     # track genes support
                     for _gene in set(orig_copy.cluster).intersection(query.cluster):
                         row_ind = len(orig_clust.gene_support[_gene])
-                        orig_clust.gene_support.set_value(row_ind, _gene, matches / orig_copy.len)
+                        try:
+                            # Don't count the gene matching itself (i.e., subtract 1 from matches and orig.len)
+                            orig_clust.gene_support.set_value(row_ind, _gene, (matches - 1) / (orig_copy.len - 1))
+                        except ZeroDivisionError:
+                            orig_clust.gene_support.set_value(row_ind, _gene, None)
 
                     if len_subj == 0:
                         break
@@ -574,10 +578,9 @@ if __name__ == '__main__':
                                  in_args.support_steps, in_args.mcmcmc_steps)
 
         for clust in final_clusters:
-            print("%s: %s (±%s)" % (clust.name, clust.support.mean(), clust.support.std()))
+            print("%s %s %s" % (clust.name, clust.support.mean(), clust.support.std()))
             for gene in clust.cluster:
-                print("%s: %s" % (gene, round(clust.gene_support[gene].mean(), 3)))
-            print("")
+                print("%s %s" % (gene, round(clust.gene_support[gene].mean(), 3)))
     else:
         print("Executing Homolog Caller...")
 
