@@ -6,13 +6,6 @@
 Convert the output from homolog_caller into an SVG tree of polytomies
 """
 
-import sys
-import os
-import re
-import shutil
-import MyFuncs
-import SeqBuddy
-import svgwrite
 
 class Nexus:
     def __init__(self, node_list):
@@ -29,52 +22,75 @@ class Nexus:
         output += ";\n"
         output += "end;\n\n"
         output += "begin trees;\n"
-        output += "\ttree tree_1 = %s" % self.newick()
-
+        output += "\ttree tree_1 = %s" % self.newick(self.node_list, 1)
+        output += "\nend;"
         return output
 
-    def newick(self):
-        output = ""
-        test = []
-        for _node in self.node_list:
-            output += "("
-            test.append(_node.rank)
-            for _leaf in _node.leaf_list:
-                output += "%s %s,"
-        print(test)
-        test.sort()
-        sys.exit(test)
+    def newick(self, _nodes, depth):
+        output = "("
+        node_groups = {}
+        for _node in _nodes:
+            try:
+                node_groups.setdefault(_node.rank[depth], []).append(_node)
+            except IndexError:  # This happens when cliques are involved
+                node_groups.setdefault(_node.rank[depth - 1], []).append(_node)
+
+        for indx, _group in node_groups.items():
+            if len(_group) == 1:
+                output += "("
+                for _leaf in _group[0].leaf_list:
+                    if not _leaf.support:
+                        _leaf.support = 1.
+                    output += "'%s'[&support=%s,!color=#%s]:1.0," % (_leaf.label, _leaf.support, _leaf.color)
+                output = "%s)[&support=%s,!color=#%s]:1.0," % (output.strip(","), _group[0].support, support_color(_group[0].support))
+
+            else:
+                output += self.newick(_group, depth + 1)
+
+        output = "%s):1.0," % output.strip(",")
+        if depth == 1:
+            output = "%s;" % output.strip(",")
         return output
 
     def __len__(self):
-        length = len([leaf.label for node in self.node_list for leaf in node.leaf_list])
+        length = len([_leaf.label for _node in self.node_list for _leaf in _node.leaf_list])
         return length
+
 
 class Node:
     def __init__(self, leaf_list, rank, ave_support, std_support):
         self.leaf_list = leaf_list
-        self.rank = rank
+        self.rank = rank.split("_")
         self.support = ave_support
         self.std = std_support
 
     def __len__(self):
         return len(self.leaf_list)
 
+
 class Leaf:
     def __init__(self, label, _support=None):
         self.label = label
-        if not _support or _support == "nan":
-            self.color = "000000"
-            self.support = None
+        if _support == "nan":
+            _support = None
+        self.support = _support
+        self.color = support_color(_support)
 
-        else:
-            self.support = float(_support)
-            if 1 < self.support < 0:
-                raise ValueError("Leaf support values must be between 0 and 1")
 
-            red = hex_string(255 - (255 * self.support))
-            green = hex_string(255 * self.support)
-            self.color = "%s%s00" % (red, green)
+def support_color(_support):
+    if not _support:
+        color = "000000"
+
+    else:
+        _support = float(_support)
+        if 1 < _support < 0:
+            raise ValueError("Leaf support values must be between 0 and 1")
+
+        red = hex_string(255 - (255 * _support))
+        green = hex_string(255 * _support)
+        color = "%s%s00" % (red, green)
+
+    return color
 
 
 def hex_string(value):
@@ -86,11 +102,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(prog="homolog_tree_builder", description="",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
     parser.add_argument("support", help="", action="store")
-    #parser.add_argument("-t", "--true", help="", action="store_true", default=False)
-    #parser.add_argument("-c", "--choice", help="", type=str, choices=["", ""], default=False)
-    #parser.add_argument("-m", "--multi_arg", nargs="+", help="", default=[])
 
     in_args = parser.parse_args()
 
@@ -111,11 +123,3 @@ if __name__ == '__main__':
 
     nexus = Nexus(nodes)
     print(nexus.print())
-
-    """
-    dwg = svgwrite.Drawing('test_files/test.svg', profile='tiny')
-    dwg.add(dwg.line(start=(10, 10), end=(100, 100), stroke=svgwrite.rgb(10, 10, 16, '%')))
-    dwg.add(dwg.line(start=(20, 20), end=(120, 120), stroke=svgwrite.rgb(10, 10, 16, '%')))
-    dwg.add(dwg.text('Test', insert=(20, 20)))
-    dwg.save()
-    """
