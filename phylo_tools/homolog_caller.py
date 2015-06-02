@@ -16,6 +16,7 @@ from subprocess import Popen, PIPE
 from multiprocessing import Lock
 from random import sample
 from math import floor
+from io import StringIO
 
 # 3rd party
 import pandas as pd
@@ -434,49 +435,17 @@ def merge_singles(clusters, scores):
     return clusters
 
 
-def support(orig_clusters, all_by_all, mode, num_samples, mcmcmc_steps, level=0.90):  # level=0.632
-    total_pop = [x.cluster for x in orig_clusters]  # List of lists
-    total_pop = [x for _clust in total_pop for x in _clust]  # Flatten to a 1D list
-
-    for _clust in orig_clusters:
-        # Add a new 'support' attribute to each Cluster object which will be appended to at each step
-        _clust.support = pd.Series()
-        # Create a dataframe to keep track of support for each individual gene
-        _clust.gene_support = pd.DataFrame(columns=_clust.cluster)
-
-    # If new ways to subsample the total population are dreamed up, create another sample_generator here...
-    if mode == "taxa":
-        taxa_list = []
-        for _gene in total_pop:
-            taxa = _gene.split("-")[0]
-            if taxa not in taxa_list:
-                taxa_list.append(taxa)
-
-        def sample_generator():
-            for _taxa in taxa_list:
-                yield Cluster([x for x in total_pop if x.split("-")[0] != _taxa])
-
-    elif mode == "jackknife":
-        sample_size = floor(level * len(total_pop))
-
-        def sample_generator():
-            for _ in range(num_samples):
-                yield Cluster(sample(total_pop, sample_size))
-
-    else:
-        raise ValueError("Mode '%s' not supported." % mode)
-
-    samples = sample_generator()
-    for jn_sample in samples:
+def support(orig_clusters, all_by_all, mode, num_samples, mcmcmc_steps, level=0.632):  # level=0.632
+    def mc_sample_support(jn_sample):
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["removed"]
 
         sample_clusters = []
         sample_clusters = homolog_caller(jn_sample, samp_all_by_all, sample_clusters, 0, False, steps=mcmcmc_steps)
         sample_clusters = merge_singles(sample_clusters, samp_all_by_all)
 
-        for orig_clust in orig_clusters:
-            orig_copy = copy(orig_clust)
-            orig_copy.cluster = [x for x in orig_clust.cluster if x in jn_sample.cluster]
+        for _orig_clust in orig_clusters:
+            orig_copy = copy(_orig_clust)
+            orig_copy.cluster = [x for x in _orig_clust.cluster if x in jn_sample.cluster]
             orig_copy.len = len(orig_copy.cluster)
             if orig_copy.len == 0:
                 continue
@@ -495,30 +464,104 @@ def support(orig_clusters, all_by_all, mode, num_samples, mcmcmc_steps, level=0.
                     tally += weighted_match
 
                     # track genes support
-                    for _gene in set(orig_copy.cluster).intersection(query.cluster):
-                        row_ind = len(orig_clust.gene_support[_gene])
+                    for matched_gene in set(orig_copy.cluster).intersection(query.cluster):
+                        row_ind = len(_orig_clust.gene_support[matched_gene])
                         try:
                             # Don't count the gene matching itself (i.e., subtract 1 from matches and orig.len)
-                            orig_clust.gene_support.set_value(row_ind, _gene, (matches - 1) / (orig_copy.len - 1))
+                            _orig_clust.gene_support.set_value(row_ind, matched_gene, (matches - 1) / (orig_copy.len - 1))
                         except ZeroDivisionError:
-                            orig_clust.gene_support.set_value(row_ind, _gene, None)
+                            _orig_clust.gene_support.set_value(row_ind, matched_gene, None)
 
                     if len_subj == 0:
                         break
             if tally == 0:
                 raise ValueError("Why is tally 0??")
-            orig_clust.support = orig_clust.support.append(pd.Series([tally]))
 
-        ####
-        _output = ""
-        for _clust in sample_clusters:
-            _output += "group_%s\t%s\t" % (_clust.name, _clust.score())
-            for _seq_id in _clust.cluster:
-                _output += "%s\t" % _seq_id
-            _output = "%s\n" % _output.strip()
-        print(_output)
-        ######
+            _orig_clust.support = _orig_clust.support.append(pd.Series([tally]))
 
+        _output = ">>>\n"
+        _output += ">>group_support\n"
+        for _orig_clust in orig_clusters:
+            string_io = StringIO()
+            _orig_clust.support.to_csv(string_io)
+            _output += "%s\n%s" % (_orig_clust.name, string_io.getvalue())
+
+        _output += ">>gene_support\n"
+        for _orig_clust in orig_clusters:
+            string_io = StringIO()
+            _orig_clust.gene_support.to_csv(string_io)
+            _output += "%s\n%s" % (_orig_clust.name, string_io.getvalue())
+
+        with lock:
+            temp_file.write(_output)
+
+    total_pop = [x.cluster for x in orig_clusters]  # List of lists
+    total_pop = [x for _clust in total_pop for x in _clust]  # Flatten to a 1D list
+
+    for _clust in orig_clusters:
+        # Add a new 'support' attribute to each Cluster object which will be appended to at each step
+        _clust.support = pd.Series()
+        # Create a dataframe to keep track of support for each individual gene
+        _clust.gene_support = pd.DataFrame(columns=_clust.cluster)
+
+    # If new ways to subsample the total population are dreamed up, create another sample_generator here...
+    if mode == "taxa":
+        taxa_list = []
+        for _gene in total_pop:
+            taxa = _gene.split("-")[0]
+            if taxa not in taxa_list:
+                taxa_list.append(taxa)
+
+        def sample_generator():
+            _samples = []
+            for _taxa in taxa_list:
+                _samples.append(Cluster([x for x in total_pop if x.split("-")[0] != _taxa]))
+            return _samples
+
+    elif mode == "jackknife":
+        sample_size = floor(level * len(total_pop))
+
+        def sample_generator():
+            _samples = []
+            for _ in range(num_samples):
+                _samples.append(Cluster(sample(total_pop, sample_size)))
+            return _samples
+
+    else:
+        raise ValueError("Mode '%s' not supported." % mode)
+
+    temp_file = MyFuncs.TempFile()
+    samples = sample_generator()
+    cpus = floor(MyFuncs.cpu_count() / 3)
+    MyFuncs.run_multicore_function(samples, mc_sample_support, max_processes=cpus)
+
+    results = temp_file.read().split(">>>\n")[1:]
+    for result in results:
+        group_sup, gene_sup = result.split("\n>>gene_support\n")
+        group_sup = group_sup.strip().strip(">>group_support\n")
+        # Cluster support
+        for group in group_sup.split("group_"):
+            group = group.splitlines()
+            if len(group) == 1:
+                continue
+
+            gsup = group[1].split(",")
+            gsup = pd.Series(float(gsup[1])) if group[1] != "" else pd.Series(None)
+
+            for orig_clust in orig_clusters:
+                if orig_clust.name == "group_%s" % group[0]:
+                    orig_clust.support = pd.concat([orig_clust.support, gsup], ignore_index=True)
+
+        # Gene support
+        for group in gene_sup.split("group_")[1:]:
+            group = group.splitlines()
+            gsup = StringIO("\n".join(group[1:]))
+
+            gsup = pd.DataFrame.from_csv(gsup)
+
+            for orig_clust in orig_clusters:
+                    if orig_clust.name == "group_%s" % group[0]:
+                        orig_clust.gene_support = orig_clust.gene_support.append(gsup, ignore_index=True)
     return orig_clusters
 
 if __name__ == '__main__':
@@ -533,6 +576,8 @@ if __name__ == '__main__':
     parser.add_argument("-sm", "--support_mode", choices=["taxa", "jackknife"], default="taxa",
                         help="Select the method for calculating support values.")
     parser.add_argument("-ss", "--support_steps", type=int, default=100, help="How many jackknife replicates?")
+    parser.add_argument("-sz", "--sample_size", type=float, default=0.632,
+                        help="Proportion of total population to use in each jackknife replicate")
     parser.add_argument("-mcs", "--mcmcmc_steps", default=1000, type=int,
                         help="Specify how deeply to sample MCL parameters")
     parser.add_argument("-sep", "--separator", action="store", default="\t",
@@ -575,12 +620,13 @@ if __name__ == '__main__':
             final_clusters[i] = clust
 
         final_clusters = support(final_clusters, scores_data, in_args.support_mode,
-                                 in_args.support_steps, in_args.mcmcmc_steps)
+                                 in_args.support_steps, in_args.mcmcmc_steps, level=in_args.sample_size)
 
         for clust in final_clusters:
             print("%s %s %s" % (clust.name, clust.support.mean(), clust.support.std()))
             for gene in clust.cluster:
                 print("%s %s" % (gene, round(clust.gene_support[gene].mean(), 3)))
+
     else:
         print("Executing Homolog Caller...")
 
