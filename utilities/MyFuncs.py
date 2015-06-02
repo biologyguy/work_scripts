@@ -26,7 +26,7 @@ class Timer:
 
 # maybe use curses library in the future to extend this for multi-line printing
 class DynamicPrint:
-    def __init__(self, out_type="stdout"):
+    def __init__(self, out_type="stdout", quiet=False):
         self._last_print = ""
         self._next_print = ""
         self._writer = self._write()
@@ -34,6 +34,7 @@ class DynamicPrint:
         out_type = stdout if out_type == "stdout" else out_type
         out_type = stderr if out_type == "stderr" else out_type
         self.out_type = out_type
+        self.quiet = quiet
 
     def _write(self):
         try:
@@ -46,15 +47,17 @@ class DynamicPrint:
             self.out_type.write("")
 
     def write(self, content):
-        content = sub("\t", "    ", content)
-        self._next_print = content
-        next(self._writer)
+        if not self.quiet:
+            content = sub("\t", "    ", content)
+            self._next_print = content
+            next(self._writer)
         return
 
     def new_line(self):
-        self.out_type.write("\n")
-        self.out_type.flush()
-        self._last_print = ""
+        if not self.quiet:
+            self.out_type.write("\n")
+            self.out_type.flush()
+            self._last_print = ""
         return
 
 
@@ -359,4 +362,3 @@ def normalize(data, trim_ends=1.0):
 
     return data
 
-print(pretty_number(12351353474534645635531))
