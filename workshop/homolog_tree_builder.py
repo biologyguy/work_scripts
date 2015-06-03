@@ -35,7 +35,10 @@ class Nexus:
             except IndexError:  # This happens when cliques are involved
                 node_groups.setdefault(_node.rank[depth - 1], []).append(_node)
 
-        for indx, _group in node_groups.items():
+        node_groups = [_group for indx, _group in node_groups.items()]
+        node_groups.sort(key=lambda x: x[0].support, reverse=True)
+
+        for _group in node_groups:
             if len(_group) == 1:
                 output += "("
                 for _leaf in _group[0].leaf_list:
@@ -59,7 +62,7 @@ class Nexus:
 
 class Node:
     def __init__(self, leaf_list, rank, ave_support, std_support):
-        self.leaf_list = leaf_list
+        self.leaf_list = sorted(leaf_list, key=lambda x: x.support, reverse=True)
         self.rank = rank.split("_")
         self.support = ave_support
         self.std = std_support
