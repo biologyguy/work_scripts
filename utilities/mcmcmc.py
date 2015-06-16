@@ -4,7 +4,7 @@
 
 """
 Use the Metropolis-Hastings algorithm to estimate optimal parameters for a given function.
-ToDo: Make multicore
+ToDo: Auto-detect when to end the run (when the stationary distribution is more or less established)
 """
 
 import os
@@ -201,9 +201,10 @@ class MCMCMC:
         self.hot_heat = 0.32
         self.chains[0].set_heat(self.cold_heat)
         self.burn_in = burn_in
+        self.quiet = quiet
 
         self.samples = {"vars": [], "score": []}
-        self.printer = DynamicPrint("stderr")
+        self.printer = DynamicPrint("stderr", quiet=quiet)
 
     def run(self):
         """
@@ -344,6 +345,7 @@ class MCMCMC:
 
             self.printer.write("%5.0f: %8.3f\t(%s)" % (counter, round(self.chains[0].current_raw_score, 3), printer_vars.strip()))
             counter += 1
+
         self.printer.new_line()
         return
 
