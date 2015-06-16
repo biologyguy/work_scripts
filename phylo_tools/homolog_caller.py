@@ -15,8 +15,9 @@ from copy import copy
 from subprocess import Popen, PIPE
 from multiprocessing import Lock
 from random import sample
-from math import floor
+from math import floor, ceil
 from io import StringIO
+from random import random
 
 # 3rd party
 import pandas as pd
@@ -29,7 +30,7 @@ import mcmcmc
 import MyFuncs
 
 
-class Clusters:
+class Clusters:  # The cluster groups should not include anything more than the groups (no names)
     def __init__(self, path, group_split="\n", gene_split="\t", taxa_split="-", global_taxa_count=None):
         with open(path, "r") as _ifile:
             self.input = _ifile.read()
@@ -77,11 +78,11 @@ class Clusters:
 
 
 class Cluster:
-    def __init__(self, cluster, taxa_split="-", global_taxa_count=None):
+    def __init__(self, cluster, taxa_split="-", global_taxa_count=None, _name=""):
         cluster.sort()
         self.cluster = cluster
         self.len = len(self.cluster)
-        self.name = ""
+        self.name = _name
         self.taxa_split = taxa_split
         self.global_taxa_count = global_taxa_count
 
@@ -172,7 +173,7 @@ def mcmcmc_mcl(args, params):
     return score
 
 
-def clique_checker(cluster, df_all_by_all):
+def clique_checker(cluster, df_all_by_all):  # ToDo: When pulling in best hits, check for multiple equal best hits
     def get_best_hit(gene_name):
         _best_hit = df_all_by_all[(df_all_by_all[0] == gene_name) | (df_all_by_all[1] == gene_name)]
         _best_hit.columns = ["subj", "query", "score"]
@@ -266,8 +267,19 @@ def clique_checker(cluster, df_all_by_all):
         if not len(total_scores):
             continue
 
-        total_kde = scipy.stats.gaussian_kde(total_scores[2], bw_method='silverman')
+        # if all sim scores in a group are identical, we can't get a KDE. Fix by perturbing the scores a little.
+        if clique_scores[2].std() == 0:
+            for indx, score in clique_scores[2].iteritems():
+                min_max = [score - (score * 0.01), score + (score * 0.01)]
+                change = random() * (min_max[1] - min_max[0])
+                clique_scores.loc[indx, 2] = min_max[0] + change
+        if total_scores[2].std() == 0:
+            for indx, score in total_scores[2].iteritems():
+                min_max = [score - (score * 0.01), score + (score * 0.01)]
+                change = random() * (min_max[1] - min_max[0])
+                total_scores.loc[indx, 2] = min_max[0] + change
 
+        total_kde = scipy.stats.gaussian_kde(total_scores[2], bw_method='silverman')
         clique_kde = scipy.stats.gaussian_kde(clique_scores[2], bw_method='silverman')
         clique_resample = clique_kde.resample(10000)
         clique95 = [scipy.stats.scoreatpercentile(clique_resample, 2.5),
@@ -290,7 +302,7 @@ def clique_checker(cluster, df_all_by_all):
 
 
 def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_all=None, save=False, steps=1000,
-                   global_taxa_count=None):
+                   global_taxa_count=None, quiet=True):
 
     temp_dir = MyFuncs.TempDir()
 
@@ -304,7 +316,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
             _ofile.write("-1000000000")
 
         mcmcmc_factory = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=steps, sample_rate=1,
-                                       params=["%s" % temp_dir.path, False, False, global_taxa_count], quiet=True,
+                                       params=["%s" % temp_dir.path, False, False, global_taxa_count], quiet=quiet,
                                        outfile="%s/mcmcmc_out.csv" % temp_dir.path)
 
     except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
@@ -353,7 +365,8 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
 
         # Recursion...
         cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank, save=save, steps=steps,
-                                      global_all_by_all=global_all_by_all, global_taxa_count=global_taxa_count)
+                                      global_all_by_all=global_all_by_all, global_taxa_count=global_taxa_count,
+                                      quiet=quiet)
 
     if save:
         temp_dir.save("%s/group_%s" % (save, rank))
@@ -363,9 +376,9 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
 
 def merge_singles(clusters, scores):
     small_clusters = []
+    small_group_names = []
     large_clusters = []
     large_group_names = []
-    small_group_names = []
     for cluster in clusters:
         if len(cluster.cluster) > 2:
             large_group_names.append(cluster.name)
@@ -390,7 +403,11 @@ def merge_singles(clusters, scores):
                         score = scores.loc[:][scores[0] == lgene]
                         score = score.loc[:][score[1] == sgene]
 
-                    score = float(score[2])
+                    if score.empty:
+                        score = 0.
+                    else:
+                        score = float(score[2])
+
                     small_to_large_dict[sclust.name][lclust.name].append(score)
 
     small_clusters = {x: small_clusters[j] for j, x in enumerate(small_group_names)}
@@ -409,11 +426,7 @@ def merge_singles(clusters, scores):
         df = pd.DataFrame()
         for group in data:
             df = df.append(group)
-
-        # print("%s\n%s" % (df.observations, df.grouplabel))
-
         result = sm.stats.multicomp.pairwise_tukeyhsd(df.observations, df.grouplabel)
-
         for line in str(result).split("\n")[4:-1]:
             line = re.sub("^ *", "", line.strip())
             line = re.sub(" +", "\t", line)
@@ -425,8 +438,7 @@ def merge_singles(clusters, scores):
                     # Insufficient support to group the gene with max_ave group
                     break
         else:
-            # The gene can be grouped with the max_ave group (write the code)
-            # final_clusters[max_ave].cluster.append(small_group_id)
+            # The gene can be grouped with the max_ave group
             large_clusters[max_ave].cluster += small_clusters[small_group_id].cluster
             del small_clusters[small_group_id]
 
@@ -458,9 +470,8 @@ def support(orig_clusters, all_by_all, mode, num_samples, mcmcmc_steps, level=0.
                 matches = len(set(orig_copy.cluster).intersection(query.cluster))
                 if matches > 0:
                     len_subj -= matches
-                    weighted_match = matches / orig_copy.len
-                    weighted_match **= 2
-                    weighted_match *= (matches * 2.) / (orig_copy.len + query.len)
+                    weighted_match = ((matches * 2.) / (orig_copy.len + query.len)) ** 1.5
+                    weighted_match *= matches / orig_copy.len
                     tally += weighted_match
 
                     # track genes support
@@ -532,7 +543,7 @@ def support(orig_clusters, all_by_all, mode, num_samples, mcmcmc_steps, level=0.
 
     temp_file = MyFuncs.TempFile()
     samples = sample_generator()
-    cpus = floor(MyFuncs.cpu_count() / 3)
+    cpus = ceil(MyFuncs.usable_cpu_count() / 3)
     MyFuncs.run_multicore_function(samples, mc_sample_support, max_processes=cpus)
 
     results = temp_file.read().split(">>>\n")[1:]
@@ -573,7 +584,7 @@ if __name__ == '__main__':
     parser.add_argument("output_file", action="store", nargs="?",
                         help="Where should groups be written to? Default to stdout.")
     parser.add_argument("-jk", "--jackknife", help="Find support for previous run.", metavar="<Groups file>")
-    parser.add_argument("-sm", "--support_mode", choices=["taxa", "jackknife"], default="taxa",
+    parser.add_argument("-sm", "--support_mode", choices=["taxa", "jackknife"], default="jackknife",
                         help="Select the method for calculating support values.")
     parser.add_argument("-ss", "--support_steps", type=int, default=100, help="How many jackknife replicates?")
     parser.add_argument("-sz", "--sample_size", type=float, default=0.632,
@@ -583,6 +594,8 @@ if __name__ == '__main__':
     parser.add_argument("-sep", "--separator", action="store", default="\t",
                         help="If the all-by-all file is not tab delimited, specify the character")
     parser.add_argument("-stf", "--save_temp_files", help="Keep all mcmcmc and MCL files", default=False)
+    parser.add_argument("-q", "--quiet", default=False,
+                        help="Suppress all output during run (only final output is returned)")
 
     in_args = parser.parse_args()
 
@@ -633,7 +646,7 @@ if __name__ == '__main__':
         final_clusters = []
         final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0, save=in_args.save_temp_files,
                                         global_all_by_all=scores_data, steps=in_args.mcmcmc_steps,
-                                        global_taxa_count=taxa_count)
+                                        global_taxa_count=taxa_count, quiet=True)
 
         output = ""
         for clust in final_clusters:
