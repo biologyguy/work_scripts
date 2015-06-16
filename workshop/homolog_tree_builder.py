@@ -89,9 +89,10 @@ def support_color(_support):
         if 1 < _support < 0:
             raise ValueError("Leaf support values must be between 0 and 1")
 
-        red = hex_string(255 - (255 * _support))
-        green = hex_string(255 * _support)
-        color = "%s%s00" % (red, green)
+        red = hex_string(175 - (175 * _support)) if _support <= 0.5 else hex_string(0)
+        green = hex_string(175 * _support) if _support >= 0.5 else hex_string(0)
+        blue = hex_string(175 * (1 - (abs(0.5 - _support))))
+        color = "%s%s%s" % (red, green, blue)
 
     return color
 
