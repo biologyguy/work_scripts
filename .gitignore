@@ -1,16 +1,19 @@
-#Python binaries
+# Python binaries
 *.pyc
 
-#PyCharm profile stuff
+# PyCharm profile stuff
 .idea
 .idea/*
 
-#Spyder IDE config files
+# Spyder IDE config files
 .spyderworkspace
 .spyderproject
 
-#Mac system stuff
+# Mac system stuff
 .DS_Store
 
-#Test files
+# Unit test html coverage files
+workshop/htmlcov/*
+
+# Test files
 workshop/test_files/*
