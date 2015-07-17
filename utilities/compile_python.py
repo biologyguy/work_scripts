@@ -20,24 +20,35 @@ if __name__ == '__main__':
                         help="Specify the main script to be executed.")
     parser.add_argument("-d", "--dependencies", nargs="+",
                         help="List of directories and files to be bundled with script.")
-
+    parser.add_argument("-c", "--config",
+                        help="List of dependencies in a config file. Use relative path from location of config file.")
     in_args = parser.parse_args()
 
     main_file = os.path.abspath(in_args.main_file)
+    current_dir = os.getcwd()
+
+    dependencies = []
+
     if in_args.dependencies:
-        in_args.dependencies = [os.path.abspath(dpndy) for dpndy in in_args.dependencies]
+        dependencies += [os.path.abspath(dpndy) for dpndy in in_args.dependencies]
+
+    if in_args.config:
+        in_args.config = os.path.abspath(in_args.config)
+        os.chdir("%s" % "/".join(in_args.config.split("/")[:-1]))
+        with open(in_args.config, "r") as ifile:
+            configs = ifile.read().strip().split("\n")
+            dependencies += [os.path.abspath(dpndy) for dpndy in configs]
 
     temp_dir = MyFuncs.TempDir()
     os.mkdir("%s/temp" % temp_dir.path)
-    current_dir = os.getcwd()
     os.chdir("%s/temp" % temp_dir.path)
 
     script_name = str(main_file.split("/")[-1])
     script_name = ".".join(script_name.split(".")[:-1])
     shutil.copyfile(main_file,  "./__main__.py")
 
-    if in_args.dependencies:
-        for dpndy in in_args.dependencies:
+    if len(dependencies) > 0:
+        for dpndy in dependencies:
             if os.path.isfile(dpndy):
                 shutil.copyfile(dpndy, "./%s" % dpndy.split("/")[-1])
             else:
