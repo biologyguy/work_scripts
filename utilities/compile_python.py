@@ -57,7 +57,7 @@ if __name__ == '__main__':
     Popen("zip -rq ../new_app.zip *", shell=True).wait()
     os.chdir("../")
     Popen("echo '#!/usr/bin/env python3' | cat - new_app.zip > %s" % script_name, shell=True).wait()
-    Popen("chmod +x %s" % script_name, shell=True).wait()
+    os.chmod(script_name, 0o755)
     os.chdir(current_dir)
     Popen("mv %s/%s ./" % (temp_dir.path, script_name), shell=True).wait()
 
