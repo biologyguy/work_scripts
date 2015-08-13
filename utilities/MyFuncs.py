@@ -86,12 +86,20 @@ def pretty_time(seconds):
     return output
 
 
-def pretty_number(num):
+def pretty_number(num, mode='short', precision=2):  # mode in ['short', 'medium', 'long']
     magnitude = 0
-    while abs(num) >= 1000 and magnitude < 11:
+    while abs(num) >= 1000 and magnitude < 8:
         magnitude += 1
-        num /= 1000.0
-    return '%.2f %s' % (num, ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y', 'X', 'S', 'D'][magnitude])
+        num = round(num / 1000.0, precision)
+    if mode == 'short':
+        return '%s %s' % (num, ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'][magnitude])
+    elif mode == 'medium':
+        return '%s %s' % (num, ['', 'Kilo', 'Mega', 'Giga', 'Tera', 'Peta', 'Exa', 'Zetta', 'Yotta'][magnitude])
+    elif mode == 'long':
+        return '%s %s' % (num, ['', 'Thousand', 'Million', 'Billion', 'Trillion', 'Quadrillion', 'Quintillion',
+                                  'Sextillion', 'Septillion'][magnitude])
+    else:
+        raise ValueError("Valid 'mode' values are 'short', 'medium', and 'long'")
 
 
 def usable_cpu_count():
