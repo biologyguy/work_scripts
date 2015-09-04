@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(prog="renaming",
                                  description="A tool to help rename or delete batches of files based on RegEx queries."
                                              " No changes will happen until the -c flag is passed.")
 
-parser.add_argument('match_string', help='RegEx search term')
+parser.add_argument('match_string', nargs="?", help='RegEx search term')
 parser.add_argument('replace_string', help='String that the RegEx will be replaced with (default is blank).', nargs="?",
                     default="")
 parser.add_argument('-d', '--dir', help='Specify the directory with your files. Default is current working dir.',
@@ -29,12 +29,18 @@ parser.add_argument('-c', '--commit', help='Commit changes. Caution, this cannot
                     action='store_true', default=False)
 parser.add_argument('-a', '--append', help='Leave the search string intact, and append the replace string to the [f] '
                                            'front or [b] back.', type=str, choices=['f', 'b'])
+parser.add_argument('-uc', '--uppercase',  action="store", type=int, choices=[1, 2, 3],
+                    help='Convert first letter of first word only (1), first letter of all words (2), '
+                         'or all letters (3) to upper case.')
 parser.add_argument('-ns', '--num_subs', help='Only substitute regex match in file name [int] times'
                                               ' (from left to right).', type=int, default=False, metavar='[INT]')
 parser.add_argument('-rm', '--remove', help='Delete files that contain a regex match',
                     action='store_true', default=False)
 
 incoming_args = parser.parse_args()
+
+if not incoming_args.match_string and not incoming_args.uppercase:
+    sys.exit("Error: renaming requires a match string or the --uppercase flag to work. Use renaming.py -h for details.")
 
 
 def stdout(string):
@@ -54,19 +60,19 @@ def delete(file_path):
     return output
 
 
-def loop_names(path_list, count):
+def loop_names(path_list, _count):
     counter_replace = incoming_args.replace_string
     for i in path_list:
         if incoming_args.num:
-            counter_replace = "%s%s" % (incoming_args.replace_string, str(count).zfill(incoming_args.num))
+            counter_replace = "%s%s" % (incoming_args.replace_string, str(_count).zfill(incoming_args.num))
 
         output = rename(incoming_args.match_string, i, counter_replace, dirpath)
 
         # output the changed files unless -q flag is passed
         if output:
             stdout("%s/%s\t--->\t%s" % (re.sub(incoming_args.dir, "", dirpath), i, output))
-            count += 1
-    return count
+            _count += 1
+    return _count
 
 
 def rename(query, ifile, replace, path):
@@ -74,8 +80,23 @@ def rename(query, ifile, replace, path):
     if ifile == "." or ifile == ".." or (ifile[0] == "." and not incoming_args.hidden):
         return None
 
+    # First deal with uppercase flag, if passed in
+    if incoming_args.uppercase:
+        def uc(match):
+            try:
+                return "%s%s" % (match.group(1), match.group(2).upper())
+            except IndexError:
+                return match.group(1).upper()
+        output = str(ifile)
+        if incoming_args.uppercase <= 2:
+            output = re.sub("([a-zA-Z])", uc, output, 1)
+        if incoming_args.uppercase == 2:
+            output = re.sub("([^a-zA-Z.])([a-zA-Z])", uc, output)
+        if incoming_args.uppercase == 3:
+            output = output.upper()
+
     # If no fancy flags are passed, do a simple global substitution with re.sub
-    if not incoming_args.append and not incoming_args.num_subs:
+    elif not incoming_args.append and not incoming_args.num_subs:
         output = re.sub(query, replace, ifile)
 
     # Otherwise, create an iterator (i.e., when -ns or -a are passed in)
