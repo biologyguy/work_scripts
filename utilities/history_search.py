@@ -10,6 +10,7 @@ import os
 import sys
 import re
 import argparse
+from subprocess import Popen
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="history", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -17,6 +18,7 @@ if __name__ == '__main__':
     parser.add_argument("regex", help="Pattern to search for in history", action="store", nargs='?', default=".*")
     parser.add_argument("depth", help="Number of matches to return", action="store", nargs='?', type=int, default=10)
     parser.add_argument("-d", "--date", help="Specify a specific history file", action="store")
+    parser.add_argument("-r", "--run", help="Re-run the most recent result matching your search", action="store_true")
     parser.add_argument("-ld", "--list_dates", help="List the available history files", action="store_true")
     parser.add_argument("-pid", "--process_id", help="Restrict results to specific pid.", action="store")
 
@@ -52,6 +54,11 @@ if __name__ == '__main__':
         command = re.sub(":[0-9]* [JFMASOND][a-z]{2}/[0-3][0-9]/[0-9]{2} [0-9]{2}:[0-9]{2}; ", "", line)
 
         if re.search(in_args.regex, command):
+            if in_args.run:
+                print(">>> %s" % command)
+                Popen(command, shell=True).wait()
+                sys.exit()
+
             output.append(line)
             in_args.depth -= 1
 
