@@ -26,7 +26,9 @@ if __name__ == '__main__':
     in_args = parser.parse_args()
 
     root, dirs, hist_files = next(os.walk("/Volumes/Zippy/.history/"))
-    in_args.run = 1 if not in_args.run[0] else in_args.run[0]
+
+    if in_args.run:
+        in_args.run = 1 if not in_args.run[0] else in_args.run[0]
 
     if in_args.list_dates:
         for _file in hist_files:
