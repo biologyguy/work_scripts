@@ -10,14 +10,14 @@ from multiprocessing import Lock
 from Bio import SearchIO
 from Bio import SeqIO
 from Bio.Seq import Seq
-from SeqBuddy import blast, SeqBuddy, guess_alphabet, rename
+from SeqBuddy import blast, SeqBuddy, _guess_alphabet, rename
 
 
 class SeqTools():
     def __init__(self, fasta_file, outdir, seq_type=False):
         self.fasta_file = os.path.abspath(fasta_file)
 
-        if guess_alphabet(SeqBuddy(self.fasta_file)) == "prot":
+        if _guess_alphabet(SeqBuddy(self.fasta_file)) == "prot":
             sys.exit("Error: Can't run transdecoder on a protein database.")
 
         self.name = "_".join(fasta_file.split("/")[-1].split(".")[:-1])
@@ -135,7 +135,7 @@ class SeqTools():
             os.mkdir(self.blast_out_dir)
 
         query_seqs = SeqBuddy(query_file)
-        seq_type = guess_alphabet(query_seqs)
+        seq_type = _guess_alphabet(query_seqs)
 
         blast_hits = blast(query_seqs, "%s/%s_%s" % (self.blastdb_dir, self.name, seq_type))
 

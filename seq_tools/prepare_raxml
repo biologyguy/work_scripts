@@ -54,7 +54,7 @@ if in_args.force:
 
 phylip = open("%s.phy" % file_name, "w")
 
-clean_alignment = SeqBuddy.phylipi(seqs)
+clean_alignment = SeqBuddy._phylipi(seqs)
 phylip.write(clean_alignment)
 
 phylip.close()

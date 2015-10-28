@@ -247,7 +247,7 @@ for block in blocks:
     if seq_ranges[-1] == "":
         seq_ranges = seq_ranges[:-1]
 
-    alphabet = SeqBuddy.guess_alphabet(seqs)
+    alphabet = SeqBuddy._guess_alphabet(seqs)
     make_cfg(new_dir, seq_ranges, file_name)
     if in_args.run_partfinder:
         os.chdir(new_dir)
