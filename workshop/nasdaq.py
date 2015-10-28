@@ -22,7 +22,7 @@ def timestamp(date_string):
     return round(time.mktime(new_datetime))
 
 
-def convert_value(value):  # input as string --> eg $12.43M
+def convert_value(value):  # Market Cap: input as string --> eg $12.43M
     magnitude = value[-1]
     value = float(value[1:-1])
     if magnitude == "M":
