@@ -16,7 +16,7 @@ export LSCOLORS=gxFxBxDxbxEgEdxbxgxcGx
 
 alias grep="grep --color=auto"
 
-export PATH=$PATH:/usr/local/bioinf:/Users/bondsr/Documents/work_scripts/utilities:/Users/bondsr/Documents/work_scripts/seq_tools:/Users/bondsr/Documents/work_scripts/phylo_tools
+export PATH=$PATH:/usr/local/bioinf_tools/pagan_v0.61:/Users/bondsr/Documents/work_scripts/utilities:/Users/bondsr/Documents/work_scripts/seq_tools:/Users/bondsr/Documents/work_scripts/phylo_tools
 export PATH=/usr/local/bin:$PATH
 
 alias ipy="python3 /usr/local/anaconda/bin/ipython notebook"
@@ -45,3 +45,10 @@ function hnote {
 
 # used to keep my history forever, 'hist' is a link to a python script I wrote (history_recorder.py), that is specific to my own system.
 PROMPT_COMMAND="hist \$(history 1) $$"
+
+
+# added by BuddySuite installer
+export PATH=$PATH:/Users/bondsr/.BuddySuite
+
+# added by BuddySuite installer
+# export PATH=$PATH:/Users/bondsr/.buddysuite
