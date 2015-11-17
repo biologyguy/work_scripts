@@ -33,7 +33,7 @@ import string
 from random import choice
 
 
-class Timer:
+class Timer(object):
     def __init__(self):
         self.current_time = round(time())
 
@@ -45,7 +45,7 @@ class Timer:
         return pretty_time(round(time()) - self.current_time)
 
 
-class RunTime:
+class RunTime(object):
     def __init__(self, prefix="", postfix="", out_type=stdout):
         self.check_file = TempFile()
         self.out_type = out_type
@@ -83,7 +83,7 @@ class RunTime:
 
 
 # maybe use curses library in the future to extend this for multi-line printing
-class DynamicPrint:
+class DynamicPrint(object):
     def __init__(self, out_type="stdout", quiet=False):
         self._last_print = ""
         self._next_print = ""
@@ -140,7 +140,7 @@ def pretty_time(seconds):
         minutes = floor(seconds / 60)
         seconds -= (minutes * 60)
         output = "%i days, %i hrs, %i min, %i sec" % (days, hours, minutes, seconds)
-        
+
     return output
 
 
@@ -201,7 +201,7 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
         # fire up the multi-core!!
         if not quiet:
             d_print.write("\tJob 0 of %s" % len(iterable))
-    
+
         for next_iter in iterable:
             if type(iterable) is dict:
                 next_iter = iterable[next_iter]
@@ -261,14 +261,14 @@ def run_multicore_function(iterable, function, func_args=False, max_processes=0,
                     elapsed = round(time()) - start_time
                     d_print.write("\t%s total jobs (%s, %s jobs remaining)" % (len(iterable), pretty_time(elapsed),
                                                                                len(child_list)))
-            
+
         if not quiet:
             d_print.write("\tDONE: %s jobs in %s\n" % (len(iterable), pretty_time(elapsed)))
         # func_args = []  # This may be necessary because of weirdness in assignment of incoming arguments
         return
 
 
-class TempDir:
+class TempDir(object):
     def __init__(self):
         self.dir = next(self._make_dir())
         self.path = self.dir.name
@@ -306,7 +306,7 @@ class TempDir:
             return True
 
 
-class TempFile:
+class TempFile(object):
     # I really don't like the behavior of tempfile.[Named]TemporaryFile(), so hack TemporaryDirectory() via TempDir()
     def __init__(self, byte_mode=False):
         self._tmp_dir = TempDir()  # This needs to be a persistent (ie self.) variable, or the directory will be deleted
@@ -368,7 +368,7 @@ class TempFile:
         return
 
 
-class SafetyValve:  # Use this class if you're afraid of an infinite loop
+class SafetyValve(object):  # Use this class if you're afraid of an infinite loop
     def __init__(self, global_reps=1000, state_reps=10, counter=0):
         self.counter = counter
         
