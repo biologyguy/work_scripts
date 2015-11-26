@@ -27,7 +27,7 @@ from time import time
 from math import floor, ceil
 import os
 from tempfile import TemporaryDirectory
-from shutil import copytree, rmtree
+from shutil import copytree, rmtree, copyfile
 from re import sub
 import string
 from random import choice
@@ -376,15 +376,15 @@ class TempFile(object):
 class SafetyValve(object):  # Use this class if you're afraid of an infinite loop
     def __init__(self, global_reps=1000, state_reps=10, counter=0):
         self.counter = counter
-        
+
         self._start_global_reps = global_reps
         self.global_reps = global_reps
-        
+
         self._start_state_reps = state_reps
         self.state_reps = state_reps
-        
+
         self.state = ""
-        
+
     def step(self, message=""):  # step() is general, and doesn't care whether useful computation is on going
         self.global_reps -= 1
         self.counter += 1
@@ -398,7 +398,7 @@ class SafetyValve(object):  # Use this class if you're afraid of an infinite loo
         else:
             self.state_reps = self._start_state_reps
             self.state = str(state)
-            
+
         if self.state_reps == 0:
             raise RuntimeError("Error: You just popped your state_reps safety valve. %s" % message)
         return True
@@ -415,6 +415,16 @@ def walklevel(some_dir, level=1):
         num_sep_this = root.count(os.path.sep)
         if num_sep + level <= num_sep_this:
             del dirs[:]
+
+
+def copydir(source, dest):
+    for root, dirs, files in os.walk(source):
+        if not os.path.isdir(root):
+            os.makedirs(root)
+        for each_file in files:
+            rel_path = root.replace(source, '').lstrip(os.sep)
+            dest_path = os.path.join(dest, rel_path, each_file)
+            copyfile(os.path.join(root, each_file), dest_path)
 
 
 def normalize(data, trim_ends=1.0):
