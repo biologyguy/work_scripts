@@ -12,12 +12,18 @@ import re
 import argparse
 from subprocess import Popen
 
+
 if __name__ == '__main__':
+    rows, columns = os.popen('stty size', 'r').read().split()
+
     parser = argparse.ArgumentParser(prog="history", description="", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("regex", help="Pattern to search for in history", action="store", nargs='?', default=".*")
     parser.add_argument("depth", help="Number of matches to return", action="store", nargs='?', type=int, default=10)
     parser.add_argument("-d", "--date", help="Specify a specific history file", action="store")
+    parser.add_argument("-e", "--expand", help="Fully expand all returned commands", action="store_true")
+    parser.add_argument("-l", "--length", default=columns, type=int,
+                        help="Length of commands returned. Default is set to width of terminal.")
     parser.add_argument("-r", "--run", nargs="?", type=int, action="append",
                         help="Re-run the most recent result matching your search")
     parser.add_argument("-ld", "--list_dates", help="List the available history files", action="store_true")
@@ -63,6 +69,10 @@ if __name__ == '__main__':
                 print(">>> %s" % command)
                 Popen(command, shell=True).wait()
                 sys.exit()
+
+            if len(line) > in_args.length and not in_args.expand:
+                length = round((in_args.length - 5) / 2)
+                line = "%s ... %s" % (line[:length], line[-1 * length:])
 
             output.append(line)
             in_args.depth -= 1
