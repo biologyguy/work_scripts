@@ -12,7 +12,6 @@ import re
 import argparse
 from subprocess import Popen
 
-
 if __name__ == '__main__':
     rows, columns = os.popen('stty size', 'r').read().split()
 
@@ -70,9 +69,12 @@ if __name__ == '__main__':
                 Popen(command, shell=True).wait()
                 sys.exit()
 
+            line = str(counter) + line
+
             if len(line) > in_args.length and not in_args.expand:
-                length = round((in_args.length - 5) / 2)
-                line = "%s ... %s" % (line[:length], line[-1 * length:])
+                left = round((in_args.length - 5) * 0.75)
+                right = round((in_args.length - 5) * 0.25) * -1
+                line = "%s ... %s" % (line[:left], line[right:])
 
             output.append(line)
             in_args.depth -= 1
