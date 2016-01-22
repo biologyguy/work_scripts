@@ -26,7 +26,7 @@ import statsmodels.api as sm
 import scipy.stats
 
 # My packages
-import mcmcmc
+import mcmcmc  # Note: This is in ../utilities and sym-linked to python3.5/site-packages
 import MyFuncs
 
 
@@ -302,7 +302,7 @@ def clique_checker(cluster, df_all_by_all):  # ToDo: When pulling in best hits, 
 
 
 def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_all=None, save=False, steps=1000,
-                   global_taxa_count=None, quiet=True):
+                   global_taxa_count=None, quiet=True, clique_check=True):
 
     temp_dir = MyFuncs.TempDir()
 
@@ -338,7 +338,11 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
 
     best_score = max(mcmcmc_output["result"])
     if best_score <= cluster.score():
-        cluster_list += clique_checker(cluster, local_all_by_all)
+        if clique_check:
+            cluster_list += clique_checker(cluster, local_all_by_all)
+        else:
+            cluster_list.append(cluster)
+
         if save:
             temp_dir.save("%s/group_%s" % (save, rank))
 
@@ -366,7 +370,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
         # Recursion...
         cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank, save=save, steps=steps,
                                       global_all_by_all=global_all_by_all, global_taxa_count=global_taxa_count,
-                                      quiet=quiet)
+                                      quiet=quiet, clique_check=clique_check)
 
     if save:
         temp_dir.save("%s/group_%s" % (save, rank))
@@ -447,6 +451,7 @@ def merge_singles(clusters, scores):
     return clusters
 
 
+# ToDo: Completely rethink support... MCL is deterministic, so it doesn't make sense to re-run the MCMCMC... Or any of this, really.
 def support(orig_clusters, all_by_all, mode, num_samples, mcmcmc_steps, level=0.632):  # level=0.632
     def mc_sample_support(jn_sample):
         samp_all_by_all = split_all_by_all(all_by_all, jn_sample.cluster)["removed"]
@@ -594,11 +599,16 @@ if __name__ == '__main__':
     parser.add_argument("-sep", "--separator", action="store", default="\t",
                         help="If the all-by-all file is not tab delimited, specify the character")
     parser.add_argument("-stf", "--save_temp_files", help="Keep all mcmcmc and MCL files", default=False)
+    parser.add_argument("-scc", "--supress_clique_check", action="store_true",
+                        help="Do not check for or break up cliques")
+    parser.add_argument("-ssf", "--supress_singlet_folding", action="store_true",
+                        help="Do not check for or merge singlets")
     parser.add_argument("-q", "--quiet", default=False,
                         help="Suppress all output during run (only final output is returned)")
 
     in_args = parser.parse_args()
 
+    clique_check = True if not in_args.supress_clique_check else False
     best = None
     best_clusters = None
     lock = Lock()
@@ -646,7 +656,7 @@ if __name__ == '__main__':
         final_clusters = []
         final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0, save=in_args.save_temp_files,
                                         global_all_by_all=scores_data, steps=in_args.mcmcmc_steps,
-                                        global_taxa_count=taxa_count, quiet=True)
+                                        global_taxa_count=taxa_count, quiet=True, clique_check=clique_check)
 
         output = ""
         for clust in final_clusters:
@@ -656,7 +666,8 @@ if __name__ == '__main__':
             output = "%s\n" % output.strip()
 
         # Try to fold singletons and doublets back into groups.
-        final_clusters = merge_singles(final_clusters, scores_data)
+        if not in_args.supress_singlet_folding:
+            final_clusters = merge_singles(final_clusters, scores_data)
 
         # Format the clusters and output to stdout or file
         output = ""
