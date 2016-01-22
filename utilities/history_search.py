@@ -19,6 +19,7 @@ if __name__ == '__main__':
 
     parser.add_argument("regex", help="Pattern to search for in history", action="store", nargs='?', default=".*")
     parser.add_argument("depth", help="Number of matches to return", action="store", nargs='?', type=int, default=10)
+    parser.add_argument("-a", "--all", help="Show all results from given search.", action="store_true")
     parser.add_argument("-d", "--date", help="Specify a specific history file", action="store")
     parser.add_argument("-e", "--expand", help="Fully expand all returned commands", action="store_true")
     parser.add_argument("-l", "--length", default=columns, type=int,
@@ -77,7 +78,8 @@ if __name__ == '__main__':
                 line = "%s ... %s" % (line[:left], line[right:])
 
             output.append(line)
-            in_args.depth -= 1
+            if not in_args.all:
+                in_args.depth -= 1
             counter += 1
 
     output.reverse()
