@@ -5,7 +5,7 @@
 """
 Convert the output from homolog_caller into an SVG tree of polytomies
 """
-
+import sys
 
 class Nexus:
     def __init__(self, node_list):
@@ -44,8 +44,8 @@ class Nexus:
                 for _leaf in _group[0].leaf_list:
                     if not _leaf.support:
                         _leaf.support = 1.
-                    output += "'%s'[&support=%s,!color=#%s]:1.0," % (_leaf.label, _leaf.support, _leaf.color)
-                output = "%s)[&support=%s,!color=#%s]:1.0," % (output.strip(","), _group[0].support, support_color(_group[0].support))
+                    output += "'%s':1.0," % _leaf.label
+                output = "%s):1.0," % output.strip(",")
 
             else:
                 output += self.newick(_group, depth + 1)
@@ -98,7 +98,7 @@ def support_color(_support):
 
 
 def hex_string(value):
-    output = "0x%0.2X" % value
+    output = "0x%0.2X" % int(value)
     return output[2:]
 
 if __name__ == '__main__':
@@ -114,16 +114,16 @@ if __name__ == '__main__':
         support_file = ifile.read().strip().split("group_")[1:]
 
     nodes = []
-    for node in support_file:
-        node = node.strip().split("\n")
-        support = node.pop(0).split(" ")
-        leaves = []
-        for leaf in node:
-            leaf = leaf.split(" ")
-            leaves.append(Leaf(leaf[0], leaf[1]))
 
-        nodes.append(Node(leaves, rank=support[0], ave_support=float(support[1]),
-                          std_support=float(support[2])))
+    for node in support_file:
+        node = node.strip().split("\t")
+        support = node[1]
+        leaves = []
+        for leaf in node[2:]:
+            leaves.append(Leaf(leaf, 1.0))
+
+        nodes.append(Node(leaves, rank=node[0], ave_support=0,
+                          std_support=0))
 
     nexus = Nexus(nodes)
     print(nexus.print())

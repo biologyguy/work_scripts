@@ -302,7 +302,7 @@ def clique_checker(cluster, df_all_by_all):  # ToDo: When pulling in best hits, 
 
 
 def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_all=None, save=False, steps=1000,
-                   global_taxa_count=None, quiet=True, clique_check=True):
+                   global_taxa_count=None, quiet=True, clique_check=True, recursion=True):
 
     temp_dir = MyFuncs.TempDir()
 
@@ -368,9 +368,12 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
         group_all_by_all[:][2] = re_norm
 
         # Recursion...
-        cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank, save=save, steps=steps,
-                                      global_all_by_all=global_all_by_all, global_taxa_count=global_taxa_count,
-                                      quiet=quiet, clique_check=clique_check)
+        if recursion:
+            cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank, save=save, steps=steps,
+                                          global_all_by_all=global_all_by_all, global_taxa_count=global_taxa_count,
+                                          quiet=quiet, clique_check=clique_check)
+        else:
+            cluster_list.append(_clust)
 
     if save:
         temp_dir.save("%s/group_%s" % (save, rank))
@@ -599,16 +602,19 @@ if __name__ == '__main__':
     parser.add_argument("-sep", "--separator", action="store", default="\t",
                         help="If the all-by-all file is not tab delimited, specify the character")
     parser.add_argument("-stf", "--save_temp_files", help="Keep all mcmcmc and MCL files", default=False)
+    parser.add_argument("-sr", "--supress_recursion", action="store_true",
+                        help="Stop after a single round of MCL. For testing.")
     parser.add_argument("-scc", "--supress_clique_check", action="store_true",
-                        help="Do not check for or break up cliques")
+                        help="Do not check for or break up cliques. For testing.")
     parser.add_argument("-ssf", "--supress_singlet_folding", action="store_true",
-                        help="Do not check for or merge singlets")
+                        help="Do not check for or merge singlets. For testing.")
     parser.add_argument("-q", "--quiet", default=False,
                         help="Suppress all output during run (only final output is returned)")
 
     in_args = parser.parse_args()
 
     clique_check = True if not in_args.supress_clique_check else False
+    recursion_check = True if not in_args.supress_recursion else False
     best = None
     best_clusters = None
     lock = Lock()
@@ -656,7 +662,8 @@ if __name__ == '__main__':
         final_clusters = []
         final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0, save=in_args.save_temp_files,
                                         global_all_by_all=scores_data, steps=in_args.mcmcmc_steps,
-                                        global_taxa_count=taxa_count, quiet=True, clique_check=clique_check)
+                                        global_taxa_count=taxa_count, quiet=False, clique_check=clique_check,
+                                        recursion=recursion_check)
 
         output = ""
         for clust in final_clusters:
