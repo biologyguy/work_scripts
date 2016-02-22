@@ -26,6 +26,7 @@ if __name__ == '__main__':
                         help="Length of commands returned. Default is set to width of terminal.")
     parser.add_argument("-r", "--run", nargs="?", type=int, action="append",
                         help="Re-run the most recent result matching your search")
+    parser.add_argument("-u", "--unique", action="store_true", help="Do not show replicate commands")
     parser.add_argument("-ld", "--list_dates", help="List the available history files", action="store_true")
     parser.add_argument("-pid", "--process_id", help="Restrict results to specific pid.", action="store")
 
@@ -55,6 +56,7 @@ if __name__ == '__main__':
             history_list += ifile.readlines()
 
     output = []
+    commands = []
     counter = 1
     while in_args.depth > 0 and len(history_list) > 0:
         line = history_list.pop()
@@ -63,6 +65,9 @@ if __name__ == '__main__':
                 continue
 
         command = re.sub(":[0-9]* [JFMASOND][a-z]{2}/[0-3][0-9]/[0-9]{2} [0-9]{2}:[0-9]{2}; ", "", line)
+        if in_args.unique and command in commands:
+            continue
+        commands.append(command)
 
         if re.search(in_args.regex, command):
             if in_args.run and in_args.run == counter:
