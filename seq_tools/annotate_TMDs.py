@@ -15,7 +15,7 @@ from Bio.Alphabet import IUPAC
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
 from MyFuncs import TempDir, run_multicore_function, walklevel
-import SeqBuddy
+import SeqBuddy as Sb
 from subprocess import Popen
 from copy import copy
 
@@ -23,7 +23,7 @@ from copy import copy
 class AnnoTMD():
     """Takes a Bio.SeqRecord and runs octopus to find/annotate TMDs"""
     def __init__(self, sequence, blastdb, debug=False):
-        sb = SeqBuddy.SeqBuddy([sequence])
+        sb = Sb.SeqBuddy([sequence])
 
         sequence.seq.alphabet = sb.alpha
 
@@ -78,20 +78,20 @@ class AnnoTMD():
             SeqIO.write(self.sequence, ofile, "gb")
 
     def __str__(self):
-        output = ""
+        _output = ""
         for i in range(len(self.TMDs)):
-            output += "TMD%s\t%s-%s\n" % (i + 1, self.TMDs[i][0], self.TMDs[i][1])
-        return output.strip()
+            _output += "TMD%s\t%s-%s\n" % (i + 1, self.TMDs[i][0], self.TMDs[i][1])
+        return _output.strip()
 
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(prog="annotate_TMDs.py", description="Identify all the transmembrane domains in "
-                                                                          "a fasta file, and send the output somewhere")
+    import sys
+    parser = argparse.ArgumentParser(prog="annotate_TMDs.py", description="Identify transmembrane domains")
 
-    parser.add_argument("in_file", help="Location of DNA or protein fasta file", action="store")
-    parser.add_argument("out_file", help="Where do you want the new genbank file sent?", action="store")
+    parser.add_argument("in_file", help="Location of DNA or protein input file", action="store")
     parser.add_argument("blastdb", help="Path to BLASTP database used by Octopus", action="store")
+    parser.add_argument("-i", "--in_place", help="Overwrite the original file. BE CAREFUL!", action="store_true")
 
     in_args = parser.parse_args()
 
@@ -100,16 +100,21 @@ if __name__ == '__main__':
         tmds = AnnoTMD(seq_rec, in_args.blastdb)
         tmds.save("%s/%s.gb" % (_temp_dir, seq_rec.id))
 
-    seqs = SeqBuddy.SeqBuddy(in_args.in_file)
+    seqs = Sb.SeqBuddy(in_args.in_file)
     temp_dir = TempDir()
-    run_multicore_function(seqs.records, get_tmds, [temp_dir.path])
+    run_multicore_function(seqs.records, get_tmds, [temp_dir.path], out_type=sys.stderr)
 
-    outfile = open(in_args.out_file, "w")
+    output = ""
 
     root, dirs, files = next(walklevel(temp_dir.path))
 
     for file in files:
         with open("%s/%s" % (root, file), "r") as ifile:
-            outfile.write("%s\n" % ifile.read())
+            output += "%s\n" % ifile.read()
 
-    outfile.close()
+    if in_args.in_place:
+        with open(in_args.in_file, "w") as ofile:
+            ofile.write(output)
+        print("File over-written at:\n%s" % in_args.in_file)
+    else:
+        print(output)

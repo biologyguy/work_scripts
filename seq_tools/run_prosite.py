@@ -60,11 +60,11 @@ def run_interproscan(sequence, interpro_output_dir):  # This had not been fully 
     tmp_file = TempFile()
     sequence.id = sequence.id
     tmp_file.write(str(sequence.seq))
-    output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 --service interpro %s"
+    _output = Popen("%s --email biologyguy@gmail.com --outfile '%s/%s' --outputLevel 1 --service interpro %s"
                    % (prosite_scan_client, interpro_output_dir, sequence.id, tmp_file.path), shell=True,
                    stdout=PIPE).communicate()[0].decode()
 
-    project_id = output.split("\n")[0]
+    project_id = _output.split("\n")[0]
 
     with open("%s/%s.tsv.txt" % (interpro_output_dir, sequence.id), "r") as in_file:
         content = in_file.read()
@@ -83,7 +83,7 @@ def run_interproscan(sequence, interpro_output_dir):  # This had not been fully 
 
 if __name__ == '__main__':
     import argparse
-    import os
+    import sys
     from multiprocessing import Lock
 
     parser = argparse.ArgumentParser(prog="run_prosite.py", description="Converts a fasta file full of sequences into a"
@@ -91,25 +91,31 @@ if __name__ == '__main__':
                                                                         " prosite motifs.")
 
     parser.add_argument("in_file", help="Where are the sequences you want analized", action="store")
-    parser.add_argument("gb_file", help="Where would you like the output saved?", action="store")
     parser.add_argument("prosite_client", help="Location of ps_scan_py3.py", action="store")
+    parser.add_argument("-i", "--in_place", help="Over-write original file.", action="store_true")
 
     in_args = parser.parse_args()
 
     sequences = Sb.SeqBuddy(in_args.in_file)
-    gb_file = os.path.abspath(in_args.gb_file)
     prosite_scan_client = in_args.prosite_client  # "/Users/bondsr/Documents/public_scripts/ps_scan_py3.py"
 
     lock = Lock()
-    with open(gb_file, "w") as ofile:
-        ofile.truncate()
+    temp_file = TempFile()
 
     def run_prosite(sequence):
         sequence = Sb.SeqBuddy([sequence])
         prosite = Prosite(sequence)
         prosite.run_prosite(prosite_scan_client)
         with lock:
-            with open(gb_file, "a") as out_file:
+            with open(temp_file.path, "a") as out_file:
                 SeqIO.write(prosite.sequence, out_file, "gb")
 
-    run_multicore_function(sequences.records, run_prosite)
+    run_multicore_function(sequences.records, run_prosite, out_type=sys.stderr)
+
+    sequences = Sb.SeqBuddy(temp_file.path)
+
+    if in_args.in_place:
+        sequences.write(in_args.in_file)
+        print("File over-written at:\n%s" % in_args.in_file)
+    else:
+        sequences.print()
