@@ -9,12 +9,11 @@ from Bio import SeqIO
 from scipy import stats
 import numpy as np
 from math import ceil, log10
-from run_multicore_function import run_multicore_function
+from MyFuncs import run_multicore_function
 from multiprocessing import Lock
 
 
-class shuffled():
-
+class Shuffled():
     def __init__(self, out_dir_path):
         self.prob_list = []
 
@@ -53,11 +52,11 @@ class shuffled():
         # Having looked at the distributions of large sets of randomly shuffled alignment scores, the data is multimodal
         # Estimate the Gaussian-kernel-density, and then integrate from 0 to the un-shuffled score to get the probability
         # of observing a score at least as small as the one seen.
-        print "Compiling shuffle scores and P-values"
+        print("Compiling shuffle scores and P-values")
 
         for rec1 in self.fasta1_list:
             for rec2 in self.fasta2_list:
-                prob = self._get_pairwise_P_value(rec1.id, rec2.id)
+                prob = self._get_pairwise_p_value(rec1.id, rec2.id)
                 self.prob_list.append(prob["prob_0_to_score"])
 
         with open("%s/probabilities.dat" % self.out_dir_path, "w") as file:
@@ -68,7 +67,8 @@ class shuffled():
         box_plot = []
         return True
 
-    def data_output(self, data_list, split_out_file, comb_out_file):
+    @staticmethod
+    def data_output(data_list, split_out_file, comb_out_file):
         # output all bootstrap data for each seq-seq comparison
         # output a single column of combined data, using shuffled score minus
         # unshuffled score for all samples
@@ -105,18 +105,20 @@ class shuffled():
 
         return combined_data
 
-    def _percentile(self, val_list, perc):
+    @staticmethod
+    def _percentile(val_list, perc):
         val_list = [float(i) for i in val_list]
         val_list = sorted(val_list)
         index = ceil(float(len(val_list)) * perc)
         return val_list[int(index)]
 
-    def _score_alignme(self, alignme_file):
+    @staticmethod
+    def _score_alignme(alignme_file):
         file_lines = alignme_file.readlines()
 
         # clear out header rows
         while True:
-            if re.match("#", file_lines[0]) != None:
+            if not re.match("#", file_lines[0]):
                 del file_lines[0]
             else:
                 break
@@ -124,8 +126,8 @@ class shuffled():
 
         tally = 0.0
         count = 0
-        for next in file_lines:
-            regular = re.sub("\s+", ",", next)
+        for _next in file_lines:
+            regular = re.sub("\s+", ",", _next)
             regular = re.sub("\?0", "0", regular)
             data = regular.split(",")
             tally += abs(float(data[1]) - float(data[5])) + abs(float(data[2]) - float(data[6])) + abs(
@@ -133,18 +135,17 @@ class shuffled():
 
         return round(tally, 1)
 
-    def _get_pairwise_P_value(self, id1, id2):
-        output = {}
-        output["pair"] = "%s-%s" % (id1, id2)
+    def _get_pairwise_p_value(self, id1, id2):
+        output = {"pair": "%s-%s" % (id1, id2)}
 
         with open("%s/ALIGNME_FILES/%s-%s.prf" % (self.out_dir_path, id1, id2), "r") as initial:
             output["score"] = self._score_alignme(initial)
 
         output["shuffled_scores"] = []
         output["shuff_minus_unshuff"] = []
-        for next in range(100):
+        for _next in range(100):
             file = "%s/ALIGNME_FILES/SHUFFLED_FILES/%s-%s/%s_%04d-%s_%04d.prf" % (
-                self.out_dir_path, id1, id2, id1, next, id2, next)
+                self.out_dir_path, id1, id2, id1, _next, id2, _next)
             with open(file, "r") as prf:
                 shuf_score = self._score_alignme(prf)
                 output["shuffled_scores"].append(shuf_score)
