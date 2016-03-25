@@ -47,38 +47,41 @@ class Timer(object):
 
 class RunTime(object):
     def __init__(self, prefix="", postfix="", out_type=stdout):
-        self.check_file = TempFile()
+        self.check_dir = TempDir()
         self.out_type = out_type
         self.prefix = prefix
         self.postfix = postfix
+        self.running_process = None
 
-    def _run(self, check_file_path):
+    def _run(self, check_dir_path):
         d_print = DynamicPrint(self.out_type)
         start_time = round(time())
         elapsed = 0
-
         while True:
-            check_file = open(check_file_path, "r")
-            if check_file.read() == "%!~_-end-_~!%":
-                check_file.close()
-                check_file = open(check_file_path, "w")
-                check_file.write("%!~_-closed-_~!%")
-                check_file.close()
-                d_print.write("")
-                break
-            d_print.write("%s%s%s" % (self.prefix, pretty_time(elapsed), self.postfix))
-            elapsed = round(time()) - start_time
+            try:
+                open("%s/running" % check_dir_path, "r").close()
+                d_print.write("%s%s%s" % (self.prefix, pretty_time(elapsed), self.postfix))
+                elapsed = round(time()) - start_time
+            except FileNotFoundError:
+                d_print.write("%s%s%s\n" % (self.prefix, pretty_time(elapsed), self.postfix))
+                return
         return
 
     def start(self):
-        Process(target=self._run, args=(self.check_file.path,)).start()
+        if os.path.isfile("%s/running" % self.check_dir.path):
+            self.end()
+        open("%s/running" % self.check_dir.path, "w").close()
+        p = Process(target=self._run, args=(self.check_dir.path,))
+        p.start()
+        self.running_process = p
         return
 
     def end(self):
-        self.check_file.write("%!~_-end-_~!%")
-        while True:
-            if self.check_file.read() == "%!~_-closed-_~!%":
-                break
+        if os.path.isfile("%s/running" % self.check_dir.path):
+            os.remove("%s/running" % self.check_dir.path)
+        while self.running_process and self.running_process.is_alive():
+            continue
+        self.running_process = None
         return
 
 
