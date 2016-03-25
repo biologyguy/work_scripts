@@ -23,7 +23,7 @@ Description: Collection of useful classes and functions
 
 from multiprocessing import Process, cpu_count
 from sys import stdout, exit, stderr
-from time import time
+from time import time, sleep
 from math import floor, ceil
 import os
 from tempfile import TemporaryDirectory
@@ -47,39 +47,41 @@ class Timer(object):
 
 class RunTime(object):
     def __init__(self, prefix="", postfix="", out_type=stdout):
-        self.check_dir = TempDir()
         self.out_type = out_type
         self.prefix = prefix
         self.postfix = postfix
         self.running_process = None
 
-    def _run(self, check_dir_path):
+    def _run(self, check_file_path):
         d_print = DynamicPrint(self.out_type)
         start_time = round(time())
         elapsed = 0
         while True:
-            try:
-                open("%s/running" % check_dir_path, "r").close()
-                d_print.write("%s%s%s" % (self.prefix, pretty_time(elapsed), self.postfix))
-                elapsed = round(time()) - start_time
-            except FileNotFoundError:
-                d_print.write("%s%s%s\n" % (self.prefix, pretty_time(elapsed), self.postfix))
-                return
+            with open("%s" % check_file_path, "r") as ifile:
+                if ifile.read() == "Running":
+                    d_print.write("%s%s%s" % (self.prefix, pretty_time(elapsed), self.postfix))
+                    elapsed = round(time()) - start_time
+                else:
+                    d_print.write("%s%s%s\n" % (self.prefix, pretty_time(elapsed), self.postfix))
+                    break
         return
 
     def start(self):
-        if os.path.isfile("%s/running" % self.check_dir.path):
+        if self.running_process:
             self.end()
-        open("%s/running" % self.check_dir.path, "w").close()
-        p = Process(target=self._run, args=(self.check_dir.path,))
+        tmp_file = TempFile()
+        tmp_file.write("Running")
+        p = Process(target=self._run, args=(tmp_file.path,))
+        p.daemon = 1
         p.start()
-        self.running_process = p
+        self.running_process = [tmp_file, p]
         return
 
     def end(self):
-        if os.path.isfile("%s/running" % self.check_dir.path):
-            os.remove("%s/running" % self.check_dir.path)
-        while self.running_process and self.running_process.is_alive():
+        if not self.running_process:
+            return
+        self.running_process[0].clear()
+        while self.running_process[1].is_alive():
             continue
         self.running_process = None
         return
