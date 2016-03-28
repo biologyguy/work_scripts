@@ -22,13 +22,13 @@ Description: Collection of useful classes and functions
 """
 
 from multiprocessing import Process, cpu_count
-from sys import stdout, exit, stderr
-from time import time, sleep
+import sys
+from time import time
 from math import floor, ceil
 import os
 from tempfile import TemporaryDirectory
 from shutil import copytree, rmtree, copyfile
-from re import sub
+import re
 import string
 from random import choice
 
@@ -46,7 +46,7 @@ class Timer(object):
 
 
 class RunTime(object):
-    def __init__(self, prefix="", postfix="", out_type=stdout):
+    def __init__(self, prefix="", postfix="", out_type=sys.stdout):
         self.out_type = out_type
         self.prefix = prefix
         self.postfix = postfix
@@ -94,8 +94,8 @@ class DynamicPrint(object):
         self._next_print = ""
         self._writer = self._write()
 
-        out_type = stdout if out_type == "stdout" else out_type
-        out_type = stderr if out_type == "stderr" else out_type
+        out_type = sys.stdout if out_type == "stdout" else out_type
+        out_type = sys.stderr if out_type == "stderr" else out_type
         self.out_type = out_type
         self.quiet = quiet
 
@@ -111,7 +111,7 @@ class DynamicPrint(object):
 
     def write(self, content):
         if not self.quiet:
-            content = sub("\t", "    ", content)
+            content = re.sub("\t", "    ", content)
             self._next_print = content
             next(self._writer)
         return
@@ -179,7 +179,7 @@ def usable_cpu_count():
     return max_processes
 
 
-def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False, out_type=stdout):
+def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False, out_type=sys.stdout):
         # fun little piece of abstraction here... directly pass in a function that is going to be looped over, and
         # fork those loops onto independent processes. Any arguments the function needs must be provided as a list.
         d_print = DynamicPrint(out_type)
@@ -304,7 +304,7 @@ class TempDir(object):
     def save(self, location, keep_hash=False):
         location = location if not keep_hash else "%s/%s" % (location, self.path.split("/")[-1])
         if os.path.isdir(location):
-            print("Save Error: Indicated output folder already exists in TempDir.save(%s)" % location, file=stderr)
+            print("Save Error: Indicated output folder already exists in TempDir.save(%s)" % location, file=sys.stderr)
             return False
         else:
             copytree(self.dir.name, location)
@@ -341,7 +341,7 @@ class TempFile(object):
     def write(self, content, mode="a"):
         mode = "%s%s" % (mode, self.bm)
         if mode not in ["w", "wb", "a", "ab"]:
-            print("Write Error: mode must be 'w' or 'a' in TempFile.write()", file=stderr)
+            print("Write Error: mode must be 'w' or 'a' in TempFile.write()", file=sys.stderr)
             return False
         already_open = True if self.handle else False
         if not already_open:
@@ -424,10 +424,11 @@ def walklevel(some_dir, level=1):
 
 def copydir(source, dest):
     for root, dirs, files in os.walk(source):
-        if not os.path.isdir(root):
-            os.makedirs(root)
+        if not os.path.isdir(dest):
+            os.makedirs(dest)
         for each_file in files:
-            rel_path = root.replace(source, '').lstrip(os.sep)
+            rel_path = re.sub(source, '', root)
+            rel_path = rel_path.lstrip(os.sep)
             dest_path = os.path.join(dest, rel_path, each_file)
             copyfile(os.path.join(root, each_file), dest_path)
 
