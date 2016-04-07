@@ -6,7 +6,10 @@
 import os
 import sys
 import SeqBuddy as Sb
+import AlignBuddy as Alb
 import buddy_resources as br
+import zipfile
+import re
 
 try:
     from suds.client import Client
@@ -73,11 +76,48 @@ def main(in_args):
                         print("Failed to create the outpath %s" % in_args.outpath)
                         return 1
                 outfile = "%s/%s.zip" % (in_args.outpath, in_args.input)
-                urllib.request.urlretrieve(result_url, outfile)
-                if os.path.exists(outfile):
-                    print("The result file %s has been retrieved for jobid %s" % (outfile, in_args.input))
-                else:
-                    print("Failed to retrieve result for jobid %s" % in_args.input)
+                if not os.path.exists(outfile):
+                    print("Retrieving")
+                    urllib.request.urlretrieve(result_url, outfile)
+                    if os.path.exists(outfile):
+                        print("The result file %s has been retrieved for jobid %s" % (outfile, in_args.input))
+                    else:
+                        print("Failed to retrieve result for jobid %s" % in_args.input)
+
+                with zipfile.ZipFile(outfile) as zf:
+                    zf.extractall(in_args.outpath)
+
+                with open("%s/%s/query.result.txt" % (in_args.outpath, in_args.input), "r") as ifile:
+                    topcons = ifile.read()
+
+                topcons = topcons.split("##############################################################################")[2:-1]
+
+                records = []
+                for rec in topcons:
+                    seq_id = re.search("Sequence name: (.*)", rec).group(1).strip()
+                    seq = re.search("Sequence:\n([A-Z]+)", rec).group(1).strip()
+                    alignment = ""
+                    for algorithm in ["TOPCONS", "OCTOPUS", "Philius", "PolyPhobius", "SCAMPI", "SPOCTOPUS"]:
+                        try:
+                            top_file = re.search("%s predicted topology:\n([ioMS]+)" % algorithm, rec).group(1).strip()
+                            alignment += ">%s\n%s\n\n" % (algorithm, top_file)
+                        except:
+                            print("%s: %s" % (seq_id, algorithm))
+                            pass
+
+                    alignment = Alb.AlignBuddy(alignment)
+                    # print(alignment)
+                    Alb.consensus_sequence(alignment)
+                    cons_seq = Sb.SeqBuddy(">%s\n%s\n" % (seq_id, seq), out_format="genbank")
+                    counter = 1
+                    for tmd in re.finditer("([MX]+)", str(alignment.records()[0].seq)):
+                        Sb.annotate(cons_seq, "TMD%s" % counter, "%s-%s" % (tmd.start(), tmd.end()))
+                        counter += 1
+                    records.append(cons_seq.records[0])
+
+                seqbuddy = Sb.SeqBuddy(records, out_format="genbank")
+                seqbuddy.write("%s/%s.gb" % (in_args.outpath, in_args.input))
+
             elif status == "None":
                 print("Your job with jobid %s does not exist! Please check you typing!" % in_args.input)
             else:
