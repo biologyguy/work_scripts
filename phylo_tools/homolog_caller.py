@@ -324,13 +324,13 @@ def clique_checker(cluster, df_all_by_all):
 
 
 def homolog_caller(cluster, local_all_by_all, cluster_list, rank, seqbuddy, global_all_by_all=None, steps=1000,
-                   global_taxa_count=None, quiet=True, clique_check=True, recursion=True, ):
+                   global_taxa_count=None, quiet=True, _clique_check=True, recursion=True, ):
 
     temp_dir = MyFuncs.TempDir()
 
     local_all_by_all.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
 
-    inflation_var = mcmcmc.Variable("I", 1.4, 20)
+    inflation_var = mcmcmc.Variable("I", 1.1, 20)
     gq_var = mcmcmc.Variable("gq", min(local_all_by_all[2]), max(local_all_by_all[2]))
 
     try:
@@ -357,7 +357,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, seqbuddy, glob
 
     best_score = max(mcmcmc_output["result"])
     if best_score <= cluster.score():
-        if clique_check:
+        if _clique_check:
             cluster_list += clique_checker(cluster, local_all_by_all)
         else:
             cluster_list.append(cluster)
@@ -386,7 +386,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, seqbuddy, glob
         if recursion:
             cluster_list = homolog_caller(sub_cluster, _scores_data, cluster_list, next_rank, seqbuddy=seqbuddy_copy,
                                           steps=steps, global_all_by_all=global_all_by_all,
-                                          global_taxa_count=global_taxa_count, quiet=quiet, clique_check=clique_check)
+                                          global_taxa_count=global_taxa_count, quiet=quiet, _clique_check=_clique_check)
         else:
             cluster_list.append(_clust)
 
@@ -494,8 +494,8 @@ def score_sequences(pair, args):
         prev_aa2 = str(aa2)
 
     with lock:
-        with open(outfile, "a") as ofile:
-            ofile.write("%s\t%s\t%s\n" % (id1, id2, _score))
+        with open(outfile, "a") as _ofile:
+            _ofile.write("%s\t%s\t%s\n" % (id1, id2, _score))
     return
 
 
@@ -592,7 +592,7 @@ if __name__ == '__main__':
     final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, rank=0, seqbuddy=sequences,
                                     global_all_by_all=scores_data,
                                     steps=in_args.mcmcmc_steps, global_taxa_count=taxa_count, quiet=False,
-                                    clique_check=clique_check, recursion=recursion_check)
+                                    _clique_check=clique_check, recursion=recursion_check)
 
     # Try to fold singletons and doublets back into groups.
     if not in_args.supress_singlet_folding:
