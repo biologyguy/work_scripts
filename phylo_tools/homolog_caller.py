@@ -11,12 +11,10 @@ the groups are refined further to include singletons and doublets and/or be brok
 import sys
 import os
 import re
+import shutil
 from copy import copy
 from subprocess import Popen, PIPE
 from multiprocessing import Lock
-from random import sample
-from math import floor, ceil
-from io import StringIO
 from random import random
 
 # 3rd party
@@ -24,12 +22,13 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 import scipy.stats
+from Bio.SubsMat import SeqMat, MatrixInfo
 
 # My packages
 import mcmcmc  # Note: This is in ../utilities and sym-linked to python3.5/site-packages
 import MyFuncs
-import SeqBuddy
-import AlignBuddy
+import SeqBuddy as Sb
+import AlignBuddy as Alb
 
 
 class Clusters:  # The cluster groups should not include anything more than the groups (no names)
@@ -125,6 +124,25 @@ class Cluster:
 
     def __str__(self):
         return str(self.cluster)
+
+
+def make_full_mat(subsmat):
+    for key in copy(subsmat):
+        try:
+            # don't over-write the reverse keys if they are already initialized
+            subsmat[(key[1], key[0])]
+        except KeyError:
+            subsmat[(key[1], key[0])] = subsmat[key]
+    return subsmat
+
+
+def bit_score(raw_score):
+    # These values were empirically determined for BLOSUM62 by Altschul
+    bit_k_value = 0.035
+    bit_lambda = 0.252
+
+    bits = ((bit_lambda * raw_score) - (log(bit_k_value))) / log(2)
+    return bits
 
 
 def split_all_by_all(data_frame, remove_list):
@@ -305,15 +323,15 @@ def clique_checker(cluster, df_all_by_all):
     return final_cliques
 
 
-def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_all=None, save=False, steps=1000,
-                   global_taxa_count=None, quiet=True, clique_check=True, recursion=True):
+def homolog_caller(cluster, local_all_by_all, cluster_list, rank, seqbuddy, global_all_by_all=None, steps=1000,
+                   global_taxa_count=None, quiet=True, clique_check=True, recursion=True, ):
 
     temp_dir = MyFuncs.TempDir()
 
     local_all_by_all.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
 
     inflation_var = mcmcmc.Variable("I", 1.4, 20)
-    gq_var = mcmcmc.Variable("gq", 0.05, 0.95)
+    gq_var = mcmcmc.Variable("gq", min(local_all_by_all[2]), max(local_all_by_all[2]))
 
     try:
         with open("%s/max.txt" % temp_dir.path, "w") as _ofile:
@@ -325,8 +343,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
 
     except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
         cluster_list.append(cluster)
-        if save:
-            temp_dir.save("%s/group_%s" % (save, rank))
+        temp_dir.save("%s/mcmcmc/group_%s" % (in_args.outdir, rank))
         return cluster_list
 
     # Set a 'worst score' that is reasonable for the data set
@@ -335,9 +352,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
         worst_score = chain.raw_min if chain.raw_min < worst_score else worst_score
 
     mcmcmc_factory.reset_params(["%s" % temp_dir.path, worst_score, global_all_by_all, global_taxa_count])
-
     mcmcmc_factory.run()
-
     mcmcmc_output = pd.read_csv("%s/mcmcmc_out.csv" % temp_dir.path, "\t")
 
     best_score = max(mcmcmc_output["result"])
@@ -346,10 +361,7 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
             cluster_list += clique_checker(cluster, local_all_by_all)
         else:
             cluster_list.append(cluster)
-
-        if save:
-            temp_dir.save("%s/group_%s" % (save, rank))
-
+        temp_dir.save("%s/mcmcmc/group_%s" % (in_args.outdir, rank))
         return cluster_list
 
     mcl_clusters = Clusters("%s/output.groups" % temp_dir.path, global_taxa_count=global_taxa_count)
@@ -362,26 +374,23 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, global_all_by_
             cluster_list.append(_clust)
             continue
 
-        group_all_by_all = split_all_by_all(local_all_by_all, _clust.cluster)["removed"]
+        seqbuddy_copy = Sb.make_copy(seqbuddy)
+        seqbuddy_copy = Sb.pull_recs(seqbuddy_copy, ["^%s$" % rec_id for rec_id in _clust.cluster])
+        _scores_data = create_all_by_all_scores(seqbuddy_copy, group=_clust.name)
 
-        _min = group_all_by_all[:][2].min()
-        data_range = group_all_by_all[:][2].max() - _min
-
-        re_norm = (group_all_by_all[:][2] - _min) / data_range
-
-        group_all_by_all[:][2] = re_norm
+        sub_cluster = pd.concat([_scores_data[0], _scores_data[1]])
+        sub_cluster = sub_cluster.value_counts()
+        sub_cluster = Cluster([i for i in sub_cluster.index], _name=next_rank)
 
         # Recursion...
         if recursion:
-            cluster_list = homolog_caller(_clust, group_all_by_all, cluster_list, next_rank, save=save, steps=steps,
-                                          global_all_by_all=global_all_by_all, global_taxa_count=global_taxa_count,
-                                          quiet=quiet, clique_check=clique_check)
+            cluster_list = homolog_caller(sub_cluster, _scores_data, cluster_list, next_rank, seqbuddy=seqbuddy_copy,
+                                          steps=steps, global_all_by_all=global_all_by_all,
+                                          global_taxa_count=global_taxa_count, quiet=quiet, clique_check=clique_check)
         else:
             cluster_list.append(_clust)
 
-    if save:
-        temp_dir.save("%s/group_%s" % (save, rank))
-
+    temp_dir.save("%s/mcmcmc/group_%s" % (in_args.outdir, rank))
     return cluster_list
 
 
@@ -456,8 +465,55 @@ def merge_singles(clusters, scores):
     clusters = [value for _ind, value in large_clusters.items()]
     clusters += [value for _ind, value in small_clusters.items()]
     return clusters
+# NOTE: There used to be a support function. Check the GitHub history if there's desire to bring parts of it back
 
-    # NOTE: There used to be a support function. Check the GitHub history if there's desire to bring parts of it back
+
+def score_sequences(pair, args):
+    id1, id2 = pair
+    alignbuddy, outfile = args
+    id_regex = "^%s$|^%s$" % (id1, id2)
+    alb_copy = Alb.make_copy(alignbuddy)
+    Alb.pull_records(alb_copy, id_regex)
+    _score = 0
+    seq1, seq2 = alb_copy.records()
+    prev_aa1 = "-"
+    prev_aa2 = "-"
+
+    for aa_pos in range(alb_copy.lengths()[0]):
+        aa1 = seq1.seq[aa_pos]
+        aa2 = seq2.seq[aa_pos]
+
+        if aa1 == "-" or aa2 == "-":
+            if prev_aa1 == "-" or prev_aa2 == "-":
+                _score += gap_extend
+            else:
+                _score += gap_open
+        else:
+            _score += BLOSUM62[aa1, aa2]
+        prev_aa1 = str(aa1)
+        prev_aa2 = str(aa2)
+
+    with lock:
+        with open(outfile, "a") as ofile:
+            ofile.write("%s\t%s\t%s\n" % (id1, id2, _score))
+    return
+
+
+def create_all_by_all_scores(seqs, group, progress=False):
+    alignment = Alb.generate_msa(Sb.make_copy(seqs), tool="mafft", params="--globalpair", quiet=True)
+    alignment = Alb.trimal(alignment, "gappyout")
+    alignment.write("%s/alignments/group_%s.aln" % (in_args.outdir, group))
+    ids1 = [rec.id for rec in alignment.records_iter()]
+    ids2 = [rec.id for rec in alignment.records_iter()]
+    all_by_all = []
+    for rec1 in ids1:
+        del ids2[ids2.index(rec1)]
+        for rec2 in ids2:
+            all_by_all.append((rec1, rec2))
+    outfile = "%s/sim_scores/group_%s.csv" % (in_args.outdir, group)
+    MyFuncs.run_multicore_function(all_by_all, score_sequences, [alignment, outfile])
+    _output = pd.read_csv(outfile, sep="\t", header=None)
+    return _output
 
 if __name__ == '__main__':
     import argparse
@@ -465,62 +521,78 @@ if __name__ == '__main__':
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("sequences", help="Location of sequence file", action="store")
-    parser.add_argument("output_file", action="store", nargs="?",
-                        help="Where should groups be written to? Default to stdout.")
+    parser.add_argument("outdir", action="store", default="%s/rd-mcd" % os.getcwd(),
+                        help="Where should results be written?")
     parser.add_argument("-sz", "--sample_size", type=float, default=0.632,
                         help="Proportion of total population to use in each jackknife replicate")
     parser.add_argument("-mcs", "--mcmcmc_steps", default=1000, type=int,
                         help="Specify how deeply to sample MCL parameters")
     parser.add_argument("-sep", "--separator", action="store", default="\t",
                         help="If the all-by-all file is not tab delimited, specify the character")
-    parser.add_argument("-stf", "--save_temp_files", help="Keep all mcmcmc and MCL files", default=False)
     parser.add_argument("-sr", "--supress_recursion", action="store_true",
                         help="Stop after a single round of MCL. For testing.")
     parser.add_argument("-scc", "--supress_clique_check", action="store_true",
                         help="Do not check for or break up cliques. For testing.")
     parser.add_argument("-ssf", "--supress_singlet_folding", action="store_true",
                         help="Do not check for or merge singlets. For testing.")
-    parser.add_argument("-q", "--quiet", default=False,
+    parser.add_argument("-op", "--open_penalty", help="Penalty for opening a gap in pairwise alignment scoring",
+                        type=float, default=-10)
+    parser.add_argument("-ep", "--extend_penalty", help="Penalty for extending a gap in pairwise alignment scoring",
+                        type=float, default=-1)
+    parser.add_argument("-nt", "--no_msa_trim", action="store_true",
+                        help="Don't apply the gappyout algorithm to MSAs before scoring")
+    parser.add_argument("-f", "--force", action="store_true",
+                        help="Overwrite previous run")
+    parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress all output during run (only final output is returned)")
 
     in_args = parser.parse_args()
+
+    if os.path.exists(in_args.outdir):
+        check = MyFuncs.ask("Output directory already exists, overwrite it [y]/n?") if not in_args.force else True
+        if check:
+            shutil.rmtree(in_args.outdir)
+        else:
+            print("Program aborted. Output directory required.")
+            sys.exit()
 
     clique_check = True if not in_args.supress_clique_check else False
     recursion_check = True if not in_args.supress_recursion else False
     best = None
     best_clusters = None
     lock = Lock()
+    printer = MyFuncs.DynamicPrint()
 
-    sequences = SeqBuddy.SeqBuddy(in_args.sequences)
+    sequences = Sb.SeqBuddy(in_args.sequences)
+    PHAT = make_full_mat(SeqMat(MatrixInfo.phat75_73))
+    BLOSUM62 = make_full_mat(SeqMat(MatrixInfo.blosum62))
+    BLOSUM45 = make_full_mat(SeqMat(MatrixInfo.blosum45))
 
-    if in_args.save_temp_files:
-        if not os.path.isdir(in_args.save_temp_files):
-            os.makedirs(in_args.save_temp_files)
+    gap_open = in_args.open_penalty
+    gap_extend = in_args.extend_penalty
 
-    print("Executing Homolog Caller...")
+    os.makedirs(in_args.outdir)
+    os.makedirs("%s/alignments" % in_args.outdir)
+    os.makedirs("%s/mcmcmc" % in_args.outdir)
+    os.makedirs("%s/sim_scores" % in_args.outdir)
 
-    scores_data = pd.read_csv(os.path.abspath(in_args.all_by_all_file), in_args.separator, header=None)
+    print("Generating initial all-by-all...")
+    scores_data = create_all_by_all_scores(sequences, group="0", progress=True)
 
     master_cluster = pd.concat([scores_data[0], scores_data[1]])
     master_cluster = master_cluster.value_counts()
-    master_cluster = Cluster([i for i in master_cluster.index])
+    master_cluster = Cluster([i for i in master_cluster.index], _name="0")
 
     taxa_count = [x.split("-")[0] for x in master_cluster.cluster]
     taxa_count = pd.Series(taxa_count)
     taxa_count = taxa_count.value_counts()
 
+    print("Creating clusters")
     final_clusters = []
-    final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, 0, save=in_args.save_temp_files,
-                                    global_all_by_all=scores_data, steps=in_args.mcmcmc_steps,
-                                    global_taxa_count=taxa_count, quiet=False, clique_check=clique_check,
-                                    recursion=recursion_check)
-
-    output = ""
-    for clust in final_clusters:
-        output += "group_%s\t%s\t" % (clust.name, clust.score())
-        for seq_id in clust.cluster:
-            output += "%s\t" % seq_id
-        output = "%s\n" % output.strip()
+    final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, rank=0, seqbuddy=sequences,
+                                    global_all_by_all=scores_data,
+                                    steps=in_args.mcmcmc_steps, global_taxa_count=taxa_count, quiet=False,
+                                    clique_check=clique_check, recursion=recursion_check)
 
     # Try to fold singletons and doublets back into groups.
     if not in_args.supress_singlet_folding:
@@ -541,9 +613,5 @@ if __name__ == '__main__':
             output += "%s\t" % seq_id
         output = "%s\n" % output.strip()
 
-    if not in_args.output_file:
-        print(output)
-
-    else:
-        with open(in_args.output_file, "w") as ofile:
-            ofile.write(output)
+    with open("%s/clusters.txt" % in_args.outdir, "w") as ofile:
+        ofile.write(output)
