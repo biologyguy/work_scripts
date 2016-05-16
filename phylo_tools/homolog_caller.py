@@ -16,6 +16,7 @@ from copy import copy
 from subprocess import Popen, PIPE
 from multiprocessing import Lock
 from random import random
+from math import log
 
 # 3rd party
 import pandas as pd
@@ -469,12 +470,15 @@ def merge_singles(clusters, scores):
 
 
 def score_sequences(pair, args):
+    # Calculate the best possible scores, and divide by the observed scores
     id1, id2 = pair
     alignbuddy, outfile = args
     id_regex = "^%s$|^%s$" % (id1, id2)
     alb_copy = Alb.make_copy(alignbuddy)
     Alb.pull_records(alb_copy, id_regex)
-    _score = 0
+    observed_score = 0
+    seq1_best = 0
+    seq2_best = 0
     seq1, seq2 = alb_copy.records()
     prev_aa1 = "-"
     prev_aa2 = "-"
@@ -483,25 +487,36 @@ def score_sequences(pair, args):
         aa1 = seq1.seq[aa_pos]
         aa2 = seq2.seq[aa_pos]
 
+        if aa1 != "-":
+            seq1_best += BLOSUM62[aa1, aa1]
+        if aa2 != "-":
+            seq2_best += BLOSUM62[aa2, aa2]
+
         if aa1 == "-" or aa2 == "-":
             if prev_aa1 == "-" or prev_aa2 == "-":
-                _score += gap_extend
+                observed_score += gap_extend
             else:
-                _score += gap_open
+                observed_score += gap_open
         else:
-            _score += BLOSUM62[aa1, aa2]
+            observed_score += BLOSUM62[aa1, aa2]
         prev_aa1 = str(aa1)
         prev_aa2 = str(aa2)
 
+    #final_score = ((observed_score / seq1_best) + (observed_score / seq1_best)) / 2
+    final_score = bit_score(observed_score) / alignbuddy.lengths()[0]
+
     with lock:
         with open(outfile, "a") as _ofile:
-            _ofile.write("%s\t%s\t%s\n" % (id1, id2, _score))
+            _ofile.write("%s\t%s\t%s\n" % (id1, id2, final_score))
     return
 
 
-def create_all_by_all_scores(seqs, group, progress=False):
-    alignment = Alb.generate_msa(Sb.make_copy(seqs), tool="mafft", params="--globalpair", quiet=True)
+def create_all_by_all_scores(seqs, group):
+    printer.write("Running MAFFT")
+    alignment = Alb.generate_msa(Sb.make_copy(seqs), tool="mafft", params="--globalpair --thread -1", quiet=True)
+    printer.write("Removing gaps")
     alignment = Alb.trimal(alignment, "gappyout")
+    printer.write("Preparing to calculate Sim scores")
     alignment.write("%s/alignments/group_%s.aln" % (in_args.outdir, group))
     ids1 = [rec.id for rec in alignment.records_iter()]
     ids2 = [rec.id for rec in alignment.records_iter()]
@@ -511,6 +526,7 @@ def create_all_by_all_scores(seqs, group, progress=False):
         for rec2 in ids2:
             all_by_all.append((rec1, rec2))
     outfile = "%s/sim_scores/group_%s.csv" % (in_args.outdir, group)
+    printer.clear()
     MyFuncs.run_multicore_function(all_by_all, score_sequences, [alignment, outfile])
     _output = pd.read_csv(outfile, sep="\t", header=None)
     return _output
@@ -527,8 +543,6 @@ if __name__ == '__main__':
                         help="Proportion of total population to use in each jackknife replicate")
     parser.add_argument("-mcs", "--mcmcmc_steps", default=1000, type=int,
                         help="Specify how deeply to sample MCL parameters")
-    parser.add_argument("-sep", "--separator", action="store", default="\t",
-                        help="If the all-by-all file is not tab delimited, specify the character")
     parser.add_argument("-sr", "--supress_recursion", action="store_true",
                         help="Stop after a single round of MCL. For testing.")
     parser.add_argument("-scc", "--supress_clique_check", action="store_true",
@@ -568,6 +582,15 @@ if __name__ == '__main__':
     BLOSUM62 = make_full_mat(SeqMat(MatrixInfo.blosum62))
     BLOSUM45 = make_full_mat(SeqMat(MatrixInfo.blosum45))
 
+    ambiguous_X = {"A": 0, "R": -1, "N": -1, "D": -1, "C": -2, "Q": -1, "E": -1, "G": -1, "H": -1, "I": -1, "L": -1,
+                   "K": -1, "M": -1, "F": -1, "P": -2, "S": 0, "T": 0, "W": -2, "Y": -1, "V": -1}
+    for aa in ambiguous_X:
+        pair = sorted((aa, "X"))
+        pair = tuple(pair)
+        PHAT[pair] = ambiguous_X[aa]
+        BLOSUM62[pair] = ambiguous_X[aa]
+        BLOSUM45[pair] = ambiguous_X[aa]
+
     gap_open = in_args.open_penalty
     gap_extend = in_args.extend_penalty
 
@@ -576,8 +599,8 @@ if __name__ == '__main__':
     os.makedirs("%s/mcmcmc" % in_args.outdir)
     os.makedirs("%s/sim_scores" % in_args.outdir)
 
-    print("Generating initial all-by-all...")
-    scores_data = create_all_by_all_scores(sequences, group="0", progress=True)
+    print("\nGenerating initial all-by-all")
+    scores_data = create_all_by_all_scores(sequences, group="0")
 
     master_cluster = pd.concat([scores_data[0], scores_data[1]])
     master_cluster = master_cluster.value_counts()
