@@ -146,23 +146,19 @@ def bit_score(raw_score):
     return bits
 
 
-def split_all_by_all(data_frame, remove_list):
-    if len(data_frame.columns) != 3:
-        raise AttributeError("dataframe should be 3 columns")
+def _psi_pred(seq_obj):
+    if os.path.isfile("%s/psi_pred/%s.ss2" % (in_args.outdir, seq_obj.id)):
+        return
+    temp_dir = MyFuncs.TempDir()
+    pwd = os.getcwd()
+    os.chdir(temp_dir.path)
+    with open("sequence.fa", "w") as _ofile:
+        _ofile.write(seq_obj.format("fasta"))
 
-    data_frame = copy(data_frame)
-    columns = data_frame.columns
-    data_frame.columns = [0, 1, 2]
-
-    removed = data_frame.loc[data_frame[0].isin(remove_list)]
-    removed = removed.loc[removed[1].isin(remove_list)]
-
-    remaining = data_frame.loc[~data_frame[0].isin(remove_list)]
-    remaining = remaining.loc[~remaining[1].isin(remove_list)]
-
-    remaining.columns = columns
-    removed.columns = columns
-    return {"remaining": remaining, "removed": removed}
+    Popen("runpsipred sequence.fa > /dev/null 2>&1", shell=True).wait()
+    os.chdir(pwd)
+    shutil.move("%s/sequence.ss2" % temp_dir.path, "%s/psi_pred/%s.ss2" % (in_args.outdir, seq_obj.id))
+    return
 
 
 def mcmcmc_mcl(args, params):
@@ -469,9 +465,9 @@ def merge_singles(clusters, scores):
 # NOTE: There used to be a support function. Check the GitHub history if there's desire to bring parts of it back
 
 
-def score_sequences(pair, args):
+def score_sequences(_pair, args):
     # Calculate the best possible scores, and divide by the observed scores
-    id1, id2 = pair
+    id1, id2 = _pair
     alignbuddy, outfile = args
     id_regex = "^%s$|^%s$" % (id1, id2)
     alb_copy = Alb.make_copy(alignbuddy)
@@ -502,12 +498,14 @@ def score_sequences(pair, args):
         prev_aa1 = str(aa1)
         prev_aa2 = str(aa2)
 
-    #final_score = ((observed_score / seq1_best) + (observed_score / seq1_best)) / 2
-    final_score = bit_score(observed_score) / alignbuddy.lengths()[0]
+    subs_mat_score = ((observed_score / seq1_best) + (observed_score / seq1_best)) / 2
+    #final_score = bit_score(observed_score) / alignbuddy.lengths()[0]
+
+    ss_file1 = pd.read_csv("%s/psi_pred/%s.ss2" % (in_args.outdir, id1))
 
     with lock:
         with open(outfile, "a") as _ofile:
-            _ofile.write("%s\t%s\t%s\n" % (id1, id2, final_score))
+            _ofile.write("%s\t%s\t%s\n" % (id1, id2, subs_mat_score))
     return
 
 
@@ -550,15 +548,17 @@ if __name__ == '__main__':
     parser.add_argument("-ssf", "--supress_singlet_folding", action="store_true",
                         help="Do not check for or merge singlets. For testing.")
     parser.add_argument("-op", "--open_penalty", help="Penalty for opening a gap in pairwise alignment scoring",
-                        type=float, default=-10)
+                        type=float, default=-5)
     parser.add_argument("-ep", "--extend_penalty", help="Penalty for extending a gap in pairwise alignment scoring",
-                        type=float, default=-1)
+                        type=float, default=0)
     parser.add_argument("-nt", "--no_msa_trim", action="store_true",
                         help="Don't apply the gappyout algorithm to MSAs before scoring")
     parser.add_argument("-f", "--force", action="store_true",
                         help="Overwrite previous run")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress all output during run (only final output is returned)")
+    parser.add_argument("-psi", "--psi_pred", action="store",
+                        help="Specify directory with psi_pred results")
 
     in_args = parser.parse_args()
 
@@ -598,6 +598,14 @@ if __name__ == '__main__':
     os.makedirs("%s/alignments" % in_args.outdir)
     os.makedirs("%s/mcmcmc" % in_args.outdir)
     os.makedirs("%s/sim_scores" % in_args.outdir)
+    os.makedirs("%s/psi_pred" % in_args.outdir)
+    if in_args.psi_pred and os.path.isdir(in_args.psi_pred):
+        files = os.listdir(in_args.psi_pred)
+        for f in files:
+            shutil.move("%s/%s" % (in_args.psi_pred, f), "%s/psi_pred" % in_args.outdir)
+
+    print("\nExecuting PSI-Pred")
+    MyFuncs.run_multicore_function(sequences.records, _psi_pred)
 
     print("\nGenerating initial all-by-all")
     scores_data = create_all_by_all_scores(sequences, group="0")
