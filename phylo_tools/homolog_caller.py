@@ -468,7 +468,7 @@ def merge_singles(clusters, scores):
 def score_sequences(_pair, args):
     # Calculate the best possible scores, and divide by the observed scores
     id1, id2 = _pair
-    alignbuddy, outfile = args
+    alignbuddy, psi_pred_files, outfile = args
     id_regex = "^%s$|^%s$" % (id1, id2)
     alb_copy = Alb.make_copy(alignbuddy)
     Alb.pull_records(alb_copy, id_regex)
@@ -499,21 +499,58 @@ def score_sequences(_pair, args):
         prev_aa2 = str(aa2)
 
     subs_mat_score = ((observed_score / seq1_best) + (observed_score / seq1_best)) / 2
-    #final_score = bit_score(observed_score) / alignbuddy.lengths()[0]
 
-    ss_file1 = pd.read_csv("%s/psi_pred/%s.ss2" % (in_args.outdir, id1))
+    # PSI PRED comparison
+    num_gaps = 0
+    ss_score = 0
+    for row1 in psi_pred_files[id1].itertuples():
+        if (psi_pred_files[id2]["indx"] == row1.indx).any():
+            row2 = psi_pred_files[id2].loc[psi_pred_files[id2]["indx"] == row1.indx]
+            row_score = 0
+            row_score += 1 - abs(float(row1.coil_prob) - float(row2.coil_prob))
+            row_score += 1 - abs(float(row1.helix_prob) - float(row2.helix_prob))
+            row_score += 1 - abs(float(row1.sheet_prob) - float(row2.sheet_prob))
+            ss_score += row_score / 3
+        else:
+            num_gaps += 1
 
+    align_len = len(psi_pred_files[id2]) + num_gaps
+    ss_score /= align_len
+    final_score = (ss_score * 0.3) + (subs_mat_score * 0.7)
     with lock:
         with open(outfile, "a") as _ofile:
-            _ofile.write("%s\t%s\t%s\n" % (id1, id2, subs_mat_score))
+            _ofile.write("%s\t%s\t%s\n" % (id1, id2, final_score))
     return
 
 
 def create_all_by_all_scores(seqs, group):
     printer.write("Running MAFFT")
     alignment = Alb.generate_msa(Sb.make_copy(seqs), tool="mafft", params="--globalpair --thread -1", quiet=True)
+    printer.write("Updating PsiPred files")
+    # Need to specify what columns the PsiPred files map to now that there are gaps.
+    psi_pred_files = {}
+    for rec in alignment.records_iter():
+        ss_file = pd.read_csv("%s/psi_pred/%s.ss2" % (in_args.outdir, rec.id), comment="#",
+                              header=None, delim_whitespace=True)
+        ss_file.columns = ["indx", "aa", "ss", "coil_prob", "helix_prob", "sheet_prob"]
+        ss_counter = 0
+        for indx, residue in enumerate(rec.seq):
+            if residue != "-":
+                ss_file.set_value(ss_counter, "indx", indx)
+                ss_counter += 1
+        psi_pred_files[rec.id] = ss_file
+
     printer.write("Removing gaps")
     alignment = Alb.trimal(alignment, "gappyout")
+    # Re-update PsiPred files, now that some columns are removed
+    for rec in alignment.records_iter():
+        new_psi_pred = []
+        for row in psi_pred_files[rec.id].itertuples():
+            if alignment.alignments[0].position_map[int(row[1])][1]:
+                new_psi_pred.append(list(row)[1:])
+        psi_pred_files[rec.id] = pd.DataFrame(new_psi_pred, columns=["indx", "aa", "ss", "coil_prob",
+                                                                     "helix_prob", "sheet_prob"])
+
     printer.write("Preparing to calculate Sim scores")
     alignment.write("%s/alignments/group_%s.aln" % (in_args.outdir, group))
     ids1 = [rec.id for rec in alignment.records_iter()]
@@ -525,7 +562,7 @@ def create_all_by_all_scores(seqs, group):
             all_by_all.append((rec1, rec2))
     outfile = "%s/sim_scores/group_%s.csv" % (in_args.outdir, group)
     printer.clear()
-    MyFuncs.run_multicore_function(all_by_all, score_sequences, [alignment, outfile])
+    MyFuncs.run_multicore_function(all_by_all, score_sequences, [alignment, psi_pred_files, outfile])
     _output = pd.read_csv(outfile, sep="\t", header=None)
     return _output
 
@@ -602,7 +639,7 @@ if __name__ == '__main__':
     if in_args.psi_pred and os.path.isdir(in_args.psi_pred):
         files = os.listdir(in_args.psi_pred)
         for f in files:
-            shutil.move("%s/%s" % (in_args.psi_pred, f), "%s/psi_pred" % in_args.outdir)
+            shutil.copyfile("%s/%s" % (in_args.psi_pred, f), "%spsi_pred/%s" % (in_args.outdir, f))
 
     print("\nExecuting PSI-Pred")
     MyFuncs.run_multicore_function(sequences.records, _psi_pred)
