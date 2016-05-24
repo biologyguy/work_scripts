@@ -127,6 +127,248 @@ class Cluster:
         return str(self.cluster)
 
 
+class ClusterNew(object):
+    def __init__(self, cluster, sim_scores, _parent=None, clique=False):
+        """
+        - Note that reciprocal best hits between paralogs are collapsed when instantiating group_0, so
+          no problem strongly penalizing all paralogs in the scoring algorithm
+
+        :param cluster: Sequence IDs
+        :type cluster: list
+        :param sim_scores: All-by-all similarity matrix for everything in the cluster (and parental clusters)
+        :type sim_scores: pandas.DataFrame
+        :param _parent: Parental cluster
+        :type _parent: Cluster
+        """
+        self.taxa = {}
+        self.sim_scores = sim_scores
+        self.parent = _parent
+        self._subgroup_counter = 0
+        self.cliques = None
+        self._score = None
+        self.collapsed_genes = {}  # If paralogs are reciprocal best hits, collapse them
+
+        if clique and not _parent:
+            raise AttributeError("A clique cannot be declared without including its parental cluster.")
+
+        if _parent:
+            if clique:
+                self.name = "%s_c0" % _parent._name if not _parent.cliques else \
+                    "%s_c%s" % (_parent._name, len(_parent.cliques) + 1)
+            else:
+                self._name = "%s_%s" % (_parent._name, _parent._subgroup_counter)
+                _parent._subgroup_counter += 1
+            for indx, genes in _parent.collapsed_genes.items():
+                if indx in cluster:
+                    self.collapsed_genes[indx] = genes
+            self.cluster = cluster
+            for gene in cluster:
+                taxa = gene.split("-")[0]
+                self.taxa.setdefault(taxa, [])
+                self.taxa[taxa].append(gene)
+        else:
+            self._name = "group_0"
+            collapse_check_list = []
+            collapsed_cluster = []
+            for gene in cluster:
+                if gene in collapse_check_list:
+                    continue
+
+                taxa = gene.split("-")[0]
+                self.taxa.setdefault(taxa, [])
+                self.taxa[taxa].append(gene)
+                collapsed_cluster.append(gene)
+                valve = MyFuncs.SafetyValve()  # ToDo: remove this when sure it is unnecessary
+                breakout = False
+                while not breakout:  # This is the primary paralog collapsing logic. Only do it once for parental group
+                    valve.step()
+                    breakout = True
+                    for edge in self._get_best_hits(gene).itertuples():
+                        other_seq_id = edge.seq1 if edge.seq1 != gene else edge.seq2
+                        if other_seq_id.split("-")[0] == taxa:
+                            other_seq_best_hits = self._get_best_hits(other_seq_id)
+                            if gene in other_seq_best_hits.seq1.values or gene in other_seq_best_hits.seq2.values:
+                                self.collapsed_genes.setdefault(gene, [])
+                                self.collapsed_genes[gene].append(other_seq_id)
+                                collapse_check_list.append(other_seq_id)
+                                # Strip collapsed paralogs from the all-by-all graph
+                                self.sim_scores = self.sim_scores[(self.sim_scores.seq1 != other_seq_id) &
+                                                                  (self.sim_scores.seq2 != other_seq_id)]
+                                if other_seq_id in collapsed_cluster:
+                                    del collapsed_cluster[collapsed_cluster.index(other_seq_id)]
+                                    del self.taxa[taxa][self.taxa[taxa].index(other_seq_id)]
+                                    if other_seq_id in self.collapsed_genes:
+                                        collapse_check_list += self.collapsed_genes[other_seq_id]
+                                        del self.collapsed_genes[other_seq_id]
+                                breakout = False
+                                break
+            self.cluster = collapsed_cluster
+
+    def _get_best_hits(self, gene):
+        best_hits = self.sim_scores[(self.sim_scores.seq1 == gene) | (self.sim_scores.seq2 == gene)]
+        try:
+            best_hits = best_hits.loc[best_hits.score == max(best_hits.score)].values
+        except ValueError:
+            print(gene)
+            sys.exit()
+        best_hits = pd.DataFrame(best_hits, columns=["seq1", "seq2", "score"])
+        return best_hits
+
+    def compare(self, query):
+        matches = set(self.cluster).intersection(query.cluster)
+        weighted_match = (len(matches) * 2.) / (len(self) + query.len)
+        print("name: %s, matches: %s, weighted_match: %s" % (self.name, len(matches), weighted_match))
+        return weighted_match
+
+    def sub_cluster(self, id_list):
+        sim_scores = pd.DataFrame()
+        for gene in id_list:
+            if gene not in self.cluster:
+                raise NameError("Gene id '%s' not present in parental cluster" % gene)
+            seq1_scores = self.sim_scores[self.sim_scores.seq1 == gene]
+            seq1_scores = seq1_scores[seq1_scores.seq2.isin(id_list)]
+            seq2_scores = self.sim_scores[self.sim_scores.seq2 == gene]
+            seq2_scores = seq2_scores[seq2_scores.seq1.isin(id_list)]
+            scores = pd.concat([seq1_scores, seq2_scores])
+            sim_scores = sim_scores.append(scores)
+        sim_scores = sim_scores.drop_duplicates()
+        subcluster = Cluster(id_list, sim_scores, self)
+        return subcluster
+
+    def name(self):
+        return self._name
+
+    def _recursive_best_hits(self, gene, global_best_hits, tested_ids):
+        best_hits = self._get_best_hits(gene)
+        global_best_hits = global_best_hits.append(best_hits, ignore_index=True)
+        for _edge in best_hits.itertuples():
+            if _edge.seq1 not in tested_ids:
+                tested_ids.append(_edge.seq1)
+                global_best_hits = self._recursive_best_hits(_edge.seq1, global_best_hits, tested_ids)
+            if _edge.seq2 not in tested_ids:
+                tested_ids.append(_edge.seq2)
+                global_best_hits = self._recursive_best_hits(_edge.seq2, global_best_hits, tested_ids)
+        return global_best_hits
+
+    def clique_checker(self):
+        best_hits = pd.DataFrame(columns=["seq1", "seq2", "score"])
+        # pull out all genes with replicate taxa and get best hits
+        for taxa, genes in self.taxa.items():
+            if len(genes) > 1:
+                for gene in genes:
+                    best_hits = self._recursive_best_hits(gene, best_hits, [gene])
+
+        cliques = []
+        for edge in best_hits.itertuples():
+            match_indicies = []
+            for indx, clique in enumerate(cliques):
+                if edge.seq1 in clique and indx not in match_indicies:
+                    match_indicies.append(indx)
+                if edge.seq2 in clique and indx not in match_indicies:
+                    match_indicies.append(indx)
+                if len(match_indicies) == 2:
+                    break
+
+            if not match_indicies:
+                cliques.append([edge.seq1, edge.seq2])
+            elif len(match_indicies) == 1:
+                new_clique = set(cliques[match_indicies[0]] + [edge.seq1, edge.seq2])
+                cliques[match_indicies[0]] = list(new_clique)
+            else:
+                match_indicies.sort()
+                new_clique = set(cliques[match_indicies[0]] + cliques[match_indicies[1]])
+                cliques[match_indicies[0]] = list(new_clique)
+                del cliques[match_indicies[1]]
+
+        # Strip out any 'cliques' that contain less than 3 genes
+        cliques = [clique for clique in cliques if len(clique) >= 3]
+
+        # Get the similarity scores for within cliques and between cliques-remaining sequences, then generate kernel-density
+        # functions for both. The overlap between the two functions is used to determine whether they should be separated
+
+        def perturb(_scores):
+            _valve = MyFuncs.SafetyValve(global_reps=10)
+            while _scores.score.std() == 0:
+                _valve.step("Failed to perturb:\n%s" % _scores)
+                for _indx, _score in _scores.score.iteritems():
+                    _scores.set_value(_indx, "score", random.gauss(_score, (_score * 0.0000001)))
+            return _scores
+
+        self.cliques = []
+        for clique in cliques:
+            clique_scores = self.sim_scores[(self.sim_scores.seq1.isin(clique)) & (self.sim_scores.seq2.isin(clique))]
+            total_scores = self.sim_scores.drop(clique_scores.index.values)
+
+            # if a clique is found that pulls in every single gene, skip
+            if not len(total_scores):
+                continue
+
+            # if all sim scores in a group are identical, we can't get a KDE. Fix by perturbing the scores a little.
+            clique_scores = perturb(clique_scores)
+            total_scores = perturb(total_scores)
+
+            total_kde = scipy.stats.gaussian_kde(total_scores.score, bw_method='silverman')
+            clique_kde = scipy.stats.gaussian_kde(clique_scores.score, bw_method='silverman')
+            clique_resample = clique_kde.resample(10000)
+            clique95 = [scipy.stats.scoreatpercentile(clique_resample, 2.5),
+                        scipy.stats.scoreatpercentile(clique_resample, 97.5)]
+
+            integrated = total_kde.integrate_box_1d(clique95[0], clique95[1])
+            if integrated < 0.05:
+                clique = Cluster(clique, sim_scores=clique_scores, _parent=self, clique=True)
+                self.cliques.append(clique)
+        self.cliques = [None] if not self.cliques else self.cliques
+        return
+
+    def score(self):
+        if self._score:
+            return self._score
+        # Don't ignore the possibility of cliques, which will alter the score.
+        if not self.cliques:
+            self.clique_checker()
+        if self.cliques[0]:
+            clique_list = [i for j in self.cliques for i in j.cluster]
+            decliqued_cluster = []
+            for gene in self.cluster:
+                if gene not in clique_list:
+                    decliqued_cluster.append(gene)
+            score = self.raw_score(decliqued_cluster)
+            score += sum([self.raw_score(x.cluster) for x in self.cliques])
+        else:
+            score = self.raw_score(self.cluster)
+        self._score = score
+        return score
+
+    def raw_score(self, id_list):
+        if len(id_list) == 1:
+            return 0
+
+        taxa = {}
+        for gene in id_list:
+            taxon = gene.split("-")[0]
+            taxa.setdefault(taxon, [])
+            taxa[taxon].append(gene)
+
+        # An entire cluster should never consist of a single taxa because I've stripped out reciprocal best hits paralogs
+        if len(taxa) == 1:
+            raise ReferenceError("Only a single taxa found in cluster...")
+
+        unique_scores = 1
+        paralog_scores = -1
+        for taxon, genes in taxa.items():
+            if len(genes) == 1:
+                unique_scores *= 2 * (1 + (len(self.taxa[taxon]) / len(self)))
+            else:
+                paralog_scores *= len(genes) * (len(genes) / len(self.taxa[taxon]))
+        return unique_scores + paralog_scores
+
+    def __len__(self):
+        return len(self.cluster)
+
+    def __str__(self):
+        return str(self.cluster)
+
+
 def make_full_mat(subsmat):
     for key in copy(subsmat):
         try:
