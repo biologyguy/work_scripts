@@ -17,6 +17,7 @@ from subprocess import Popen, PIPE
 from multiprocessing import Lock
 from random import random
 from math import log
+from hashlib import md5
 
 # 3rd party
 import pandas as pd
@@ -32,112 +33,17 @@ import SeqBuddy as Sb
 import AlignBuddy as Alb
 
 
-class Clusters:  # The cluster groups should not include anything more than the groups (no names)
-    def __init__(self, path, group_split="\n", gene_split="\t", taxa_split="-", global_taxa_count=None):
-        with open(path, "r") as _ifile:
-            self.input = _ifile.read()
-
-        clusters = self.input.strip().split(group_split)
-        self.clusters = [Cluster([y for y in x.strip().split(gene_split)], global_taxa_count=global_taxa_count)
-                         for x in clusters]
-        self.size = 0.
-        for group in self.clusters:
-            self.size += group.len
-
-        self.printer = MyFuncs.DynamicPrint()
-        self.taxa_split = taxa_split
-
-    def score_all_clusters(self):
-        score = 0
-        taxa = pd.Series()
-        for cluster in self.clusters:
-            # Weight each score by cluster size. Final score max = 1.0, min = 0.0
-            score += cluster.score() * (cluster.len / self.size)
-            temp_taxa = [x.split(self.taxa_split)[0] for x in cluster.cluster]
-            temp_taxa = pd.Series(temp_taxa)
-            taxa = pd.concat([taxa, temp_taxa])
-
-        return self.srs(score)
-
-    def write(self, outfile):
-        with open(outfile, "w") as _ofile:
-            for cluster in self.clusters:
-                _ofile.write("%s\n" % "\t".join(cluster.cluster))
-        return
-
-    # The following are possible score modifier schemes to account for group size
-    def gpt(self, score, taxa):  # groups per taxa
-        genes_per_taxa = self.size / len(taxa.value_counts())
-        num_clusters_modifier = abs(genes_per_taxa - len(self.clusters))
-        score = round(score / len(self.clusters) - num_clusters_modifier ** 1.2, 2)
-        return score
-
-    def srs(self, score):  # Square root sequences
-        # print(len(self.clusters))
-        modifier = abs(self.size ** 0.5 - len(self.clusters)) ** 1.2
-        score = round(score / len(self.clusters) - modifier, 2)
-        return score
-
-
-class Cluster:
-    def __init__(self, cluster, taxa_split="-", global_taxa_count=None, _name=""):
-        cluster.sort()
-        self.cluster = cluster
-        self.len = len(self.cluster)
-        self.name = _name
-        self.taxa_split = taxa_split
-        self.global_taxa_count = global_taxa_count
-
-    def score(self):
-        taxa = [x.split(self.taxa_split)[0] for x in self.cluster]
-        taxa = pd.Series(taxa)
-
-        if len(taxa) == 1:
-            return 0
-
-        score = 0
-        try:
-            for taxon, num in taxa.value_counts().iteritems():
-                if num == 1:
-                    score += self.global_taxa_count[taxon] ** 0.5
-
-                else:
-                    score -= (1 / self.global_taxa_count[taxon] ** 0.5) * num * 2
-
-        except TypeError:  # This happens if global_taxa_count is not set
-            singles = 0
-            for taxon, num in taxa.value_counts().iteritems():
-                if num == 1:
-                    singles += 1
-
-                else:
-                    score -= num
-
-            score += singles ** 2
-
-        return score
-
-    def compare(self, query):
-        matches = set(self.cluster).intersection(query.cluster)
-        weighted_match = (len(matches) * 2.) / (self.len + query.len)
-        print("name: %s, matches: %s, weighted_match: %s" % (self.name, len(matches), weighted_match))
-        return weighted_match
-
-    def __str__(self):
-        return str(self.cluster)
-
-
-class ClusterNew(object):
-    def __init__(self, cluster, sim_scores, _parent=None, clique=False):
+class Cluster(object):
+    def __init__(self, seq_ids, sim_scores, _parent=None, clique=False):
         """
         - Note that reciprocal best hits between paralogs are collapsed when instantiating group_0, so
           no problem strongly penalizing all paralogs in the scoring algorithm
 
-        :param cluster: Sequence IDs
-        :type cluster: list
-        :param sim_scores: All-by-all similarity matrix for everything in the cluster (and parental clusters)
+        :param seq_ids: Sequence IDs
+        :type seq_ids: list
+        :param sim_scores: All-by-all similarity matrix for everything in the seq_ids (and parental clusters)
         :type sim_scores: pandas.DataFrame
-        :param _parent: Parental cluster
+        :param _parent: Parental seq_ids
         :type _parent: Cluster
         """
         self.taxa = {}
@@ -149,9 +55,12 @@ class ClusterNew(object):
         self.collapsed_genes = {}  # If paralogs are reciprocal best hits, collapse them
 
         if clique and not _parent:
-            raise AttributeError("A clique cannot be declared without including its parental cluster.")
+            raise AttributeError("A clique cannot be declared without including its parental seq_ids.")
 
         if _parent:
+            self.cluster_score_file = _parent.cluster_score_file
+            self.similarity_graphs = _parent.similarity_graphs
+            self.lock = _parent.lock
             if clique:
                 self.name = "%s_c0" % _parent._name if not _parent.cliques else \
                     "%s_c%s" % (_parent._name, len(_parent.cliques) + 1)
@@ -159,18 +68,23 @@ class ClusterNew(object):
                 self._name = "%s_%s" % (_parent._name, _parent._subgroup_counter)
                 _parent._subgroup_counter += 1
             for indx, genes in _parent.collapsed_genes.items():
-                if indx in cluster:
+                if indx in seq_ids:
                     self.collapsed_genes[indx] = genes
-            self.cluster = cluster
-            for gene in cluster:
+            self.seq_ids = seq_ids
+            for gene in seq_ids:
                 taxa = gene.split("-")[0]
                 self.taxa.setdefault(taxa, [])
                 self.taxa[taxa].append(gene)
         else:
             self._name = "group_0"
+            # No reason to re-calculate scores, so record what's been done in a temp file to persist over subprocesses
+            self.cluster_score_file = MyFuncs.TempFile()
+            self.cluster_score_file.write("score,cluster")
+            self.similarity_graphs = MyFuncs.TempDir()
+            self.lock = Lock()
             collapse_check_list = []
             collapsed_cluster = []
-            for gene in cluster:
+            for gene in seq_ids:
                 if gene in collapse_check_list:
                     continue
 
@@ -202,10 +116,14 @@ class ClusterNew(object):
                                         del self.collapsed_genes[other_seq_id]
                                 breakout = False
                                 break
-            self.cluster = collapsed_cluster
+            self.seq_ids = collapsed_cluster
 
     def _get_best_hits(self, gene):
-        best_hits = self.sim_scores[(self.sim_scores.seq1 == gene) | (self.sim_scores.seq2 == gene)]
+        try:
+            best_hits = self.sim_scores[(self.sim_scores.seq1 == gene) | (self.sim_scores.seq2 == gene)]
+        except TypeError:
+            print(self.sim_scores)
+            sys.exit()
         try:
             best_hits = best_hits.loc[best_hits.score == max(best_hits.score)].values
         except ValueError:
@@ -215,7 +133,7 @@ class ClusterNew(object):
         return best_hits
 
     def compare(self, query):
-        matches = set(self.cluster).intersection(query.cluster)
+        matches = set(self.seq_ids).intersection(query.seq_ids)
         weighted_match = (len(matches) * 2.) / (len(self) + query.len)
         print("name: %s, matches: %s, weighted_match: %s" % (self.name, len(matches), weighted_match))
         return weighted_match
@@ -223,8 +141,8 @@ class ClusterNew(object):
     def sub_cluster(self, id_list):
         sim_scores = pd.DataFrame()
         for gene in id_list:
-            if gene not in self.cluster:
-                raise NameError("Gene id '%s' not present in parental cluster" % gene)
+            if gene not in self.seq_ids:
+                raise NameError("Gene id '%s' not present in parental seq_ids" % gene)
             seq1_scores = self.sim_scores[self.sim_scores.seq1 == gene]
             seq1_scores = seq1_scores[seq1_scores.seq2.isin(id_list)]
             seq2_scores = self.sim_scores[self.sim_scores.seq2 == gene]
@@ -323,21 +241,61 @@ class ClusterNew(object):
     def score(self):
         if self._score:
             return self._score
+        # Confirm that a score for this cluster has not been caluclated before
+        prev_scores = pd.read_csv(self.cluster_score_file.path, index_col=False)
+        seq_ids = md5_hash("".join(sorted(self.seq_ids)))
+        if seq_ids in prev_scores.cluster.values:
+            self._score = float(prev_scores.score[prev_scores.cluster == seq_ids])
+            print("Previously calculated! %s" % self._score)  # ToDo: Delete this line
+            return self._score
+
         # Don't ignore the possibility of cliques, which will alter the score.
+        # Note that cliques are assumed to be the smallest unit, so not containing any sub-cliques. Valid?
+        decliqued_cluster = self.decliqued()
+        self._score = self.raw_score(decliqued_cluster)
+        for clique in self.cliques:
+            clique_ids = md5_hash("".join(sorted(clique.seq_ids)))
+            if clique_ids in prev_scores.cluster.values:
+                self._score += float(prev_scores.score[prev_scores.cluster == clique_ids])
+            else:
+                clique_score = self.raw_score(clique.seq_ids)
+                self._score += clique_score
+                with self.lock:
+                    self.cluster_score_file.write("\n%s,%s" % (clique_score, clique_ids))
+                    sim_scores = self.sim_scores[(self.sim_scores.seq1.isin(clique.seq_ids)) &
+                                                 (self.sim_scores.seq2.isin(clique.seq_ids))]
+                    sim_scores.to_csv("%s/%s" % (self.similarity_graphs.path, clique_ids), index=False)
+        with self.lock:
+            self.cluster_score_file.write("\n%s,%s" % (self._score, seq_ids))
+            self.sim_scores.to_csv("%s/%s" % (self.similarity_graphs.path, seq_ids), index=False)
+        return self._score
+
+    def decliqued(self):
         if not self.cliques:
             self.clique_checker()
         if self.cliques[0]:
-            clique_list = [i for j in self.cliques for i in j.cluster]
+            clique_list = [i for j in self.cliques for i in j.seq_ids]
             decliqued_cluster = []
-            for gene in self.cluster:
+            for gene in self.seq_ids:
                 if gene not in clique_list:
                     decliqued_cluster.append(gene)
-            score = self.raw_score(decliqued_cluster)
-            score += sum([self.raw_score(x.cluster) for x in self.cliques])
+            return decliqued_cluster
         else:
-            score = self.raw_score(self.cluster)
-        self._score = score
+            return self.seq_ids
+
+    """The following are possible score modifier schemes to account for group size
+    def gpt(self, score, taxa):  # groups per taxa
+        genes_per_taxa = self.size / len(taxa.value_counts())
+        num_clusters_modifier = abs(genes_per_taxa - len(self.clusters))
+        score = round(score / len(self.clusters) - num_clusters_modifier ** 1.2, 2)
         return score
+
+    def srs(self, score):  # Square root sequences
+        # print(len(self.clusters))
+        modifier = abs(self.size ** 0.5 - len(self.clusters)) ** 1.2
+        score = round(score / len(self.clusters) - modifier, 2)
+        return score
+    """
 
     def raw_score(self, id_list):
         if len(id_list) == 1:
@@ -349,9 +307,9 @@ class ClusterNew(object):
             taxa.setdefault(taxon, [])
             taxa[taxon].append(gene)
 
-        # An entire cluster should never consist of a single taxa because I've stripped out reciprocal best hits paralogs
+        # An entire seq_ids should never consist of a single taxa because I've stripped out reciprocal best hits paralogs
         if len(taxa) == 1:
-            raise ReferenceError("Only a single taxa found in cluster...")
+            raise ReferenceError("Only a single taxa found in seq_ids...")
 
         unique_scores = 1
         paralog_scores = -1
@@ -363,10 +321,15 @@ class ClusterNew(object):
         return unique_scores + paralog_scores
 
     def __len__(self):
-        return len(self.cluster)
+        return len(self.seq_ids)
 
     def __str__(self):
-        return str(self.cluster)
+        return str(self.seq_ids)
+
+
+def md5_hash(_input):
+    _input = str(_input).encode()
+    return md5(_input).hexdigest()
 
 
 def make_full_mat(subsmat):
@@ -405,7 +368,7 @@ def _psi_pred(seq_obj):
 
 def mcmcmc_mcl(args, params):
     inflation, gq = args
-    external_tmp_dir, min_score, all_by_all, global_taxa_count = params
+    external_tmp_dir, min_score, seqbuddy, parent_cluster = params
     mcl_tmp_dir = MyFuncs.TempDir()
 
     _output = Popen("mcl %s/input.csv --abc -te 2 -tf 'gq(%s)' -I %s -o %s/output.groups" %
@@ -416,173 +379,63 @@ def mcmcmc_mcl(args, params):
     if re.search("\[mclvInflate\] warning", _output) and min_score:
         return min_score
 
-    clusters = Clusters("%s/output.groups" % mcl_tmp_dir.path, global_taxa_count=global_taxa_count)
-    score = clusters.score_all_clusters()
+    clusters = parse_mcl_clusters("%s/output.groups" % mcl_tmp_dir.path)
+    score = 0
+    prev_scores = pd.read_csv(parent_cluster.cluster_score_file.path, index_col=False)
+
+    for indx, cluster in enumerate(clusters):
+        cluster_ids = md5_hash("".join(sorted(cluster)))
+        if cluster_ids in prev_scores.cluster.values:
+            with parent_cluster.lock:
+                sim_scores = pd.read_csv("%s/%s" % (parent_cluster.similarity_graphs.path, cluster_ids), index_col=False)
+            score += float(prev_scores.score[prev_scores.cluster == cluster_ids])
+        else:
+            sb_copy = Sb.make_copy(seqbuddy)
+            sb_copy = Sb.pull_recs(sb_copy, "|".join(["^%s$" % _id for _id in cluster]))
+            alb_obj, sim_scores = create_all_by_all_scores(sb_copy, quiet=True)
+
+        cluster = Cluster(cluster, sim_scores)
+        clusters[indx] = cluster
+        score += cluster.score()
 
     with lock:
         with open("%s/max.txt" % external_tmp_dir, "r") as _ifile:
             current_max = float(_ifile.read())
-
-    if score > current_max:
-        with lock:
-            clusters.write("%s/output.groups" % external_tmp_dir)
+        if score > current_max:
+            write_mcl_clusters(clusters, "%s/best_group" % external_tmp_dir)
             with open("%s/max.txt" % external_tmp_dir, "w") as _ofile:
                 _ofile.write(str(score))
-
     return score
 
 
-def clique_checker(cluster, df_all_by_all):
-    def get_best_hit(gene_name):  # ToDo: When pulling in best hits, check for multiple equal best hits
-        _best_hit = df_all_by_all[(df_all_by_all[0] == gene_name) | (df_all_by_all[1] == gene_name)]
-        _best_hit.columns = ["subj", "query", "score"]
-        _best_hit = _best_hit.loc[_best_hit["score"] == max(_best_hit["score"])].values[0]
-        return _best_hit
-
-    valve = MyFuncs.SafetyValve(50)
-    genes = pd.DataFrame([x.split(cluster.taxa_split) for x in cluster.cluster])
-    genes.columns = ["taxa", "gene"]
-
-    in_dict = {}
-    cliques = []
-
-    # pull out all genes with replicate taxa and get best hits
-    for taxa, num in genes['taxa'].value_counts().iteritems():
-        if num > 1:
-            taxa = genes.loc[genes["taxa"] == taxa]
-            for j, rec in taxa.iterrows():
-                _gene = "%s-%s" % (rec["taxa"], rec["gene"])
-                best_hit = get_best_hit(_gene)
-                # Don't know what order the "subj" and "query" genes are in, so check
-                # in_dict[_gene] = (<the best hit gene>, <best hit sim score>)
-                in_dict[_gene] = (best_hit[0], best_hit[2]) if best_hit[1] == _gene else (best_hit[1], best_hit[2])
-
-    # Iterate through in_dict and pull in all genes to fill out all best-hit sub-graphs from duplicates
-    in_dict_length = len(in_dict)
-    while True:
-        copy_in_dict = copy(in_dict)
-        valve.step()
-        for indx, value in copy_in_dict.items():
-            _gene = value[0]
-            if _gene not in in_dict:
-                best_hit = get_best_hit(_gene)
-                in_dict[_gene] = (best_hit[0], best_hit[2]) if best_hit[1] == _gene else (best_hit[1], best_hit[2])
-
-        if in_dict_length == len(in_dict):
-            break
-        else:
-            in_dict_length = len(in_dict)
-
-    # Separate all sub-graphs (i.e., cliques) into lists
-    while len(in_dict):
-        valve.step()
-        copy_in_dict = copy(in_dict)
-        for indx, value in copy_in_dict.items():
-            in_clique = False
-
-            for j, clique in enumerate(cliques):
-                if indx in clique or value[0] in clique:
-                    if type(in_clique) != int:
-                        in_clique = j
-                        cliques[j] = list({indx, value[0]}.union(set(cliques[j])))
-                        del in_dict[indx]
-
-                    else:
-                        cliques[in_clique] = list(set(cliques[in_clique]).union(set(cliques[j])))
-                        del cliques[j]
-                        break
-
-            if type(in_clique) != int:
-                del in_dict[indx]
-                cliques.append([indx, value[0]])
-
-    # Strip out any 'cliques' that contain less than 3 genes
-    while True:
-        valve.step()
-        for j, clique in enumerate(cliques):
-            if len(clique) < 3:
-                del cliques[j]
-                break
-        break
-
-    # Get the similarity scores for within cliques and between cliques-remaining sequences, then generate kernel-density
-    # functions for both. The overlap between the two functions is used to determine whether they should be separated
-    final_cliques = []
-    for clique in cliques:
-        total_scores = pd.DataFrame()
-        if len(clique) < 3:
-            continue
-
-        for _gene in clique:
-            scores = df_all_by_all[df_all_by_all[0] == _gene]
-            scores = scores[scores[1].isin(cluster.cluster)]
-            tmp = df_all_by_all[df_all_by_all[1] == _gene]
-            tmp = tmp[tmp[0].isin(cluster.cluster)]
-            scores = pd.concat([scores, tmp])
-            total_scores = total_scores.append(scores)
-
-        clique_scores = total_scores[(total_scores[0].isin(clique)) & (total_scores[1].isin(clique))]
-        total_scores = total_scores.drop(clique_scores.index.values)
-
-        # if a clique is found that pulls in every single gene, skip
-        if not len(total_scores):
-            continue
-
-        # if all sim scores in a group are identical, we can't get a KDE. Fix by perturbing the scores a little.
-        if clique_scores[2].std() == 0:
-            for indx, score in clique_scores[2].iteritems():
-                min_max = [score - (score * 0.01), score + (score * 0.01)]
-                change = random() * (min_max[1] - min_max[0])
-                clique_scores.loc[indx, 2] = min_max[0] + change
-        if total_scores[2].std() == 0:
-            for indx, score in total_scores[2].iteritems():
-                min_max = [score - (score * 0.01), score + (score * 0.01)]
-                change = random() * (min_max[1] - min_max[0])
-                total_scores.loc[indx, 2] = min_max[0] + change
-
-        total_kde = scipy.stats.gaussian_kde(total_scores[2], bw_method='silverman')
-        clique_kde = scipy.stats.gaussian_kde(clique_scores[2], bw_method='silverman')
-        clique_resample = clique_kde.resample(10000)
-        clique95 = [scipy.stats.scoreatpercentile(clique_resample, 2.5),
-                    scipy.stats.scoreatpercentile(clique_resample, 97.5)]
-
-        integrated = total_kde.integrate_box_1d(clique95[0], clique95[1])
-        if integrated < 0.05:
-            final_cliques.append(clique)
-
-    if final_cliques:
-        for clique in final_cliques:
-            cluster.cluster = [x for x in cluster.cluster if x not in clique]
-
-        final_cliques = [Cluster(x) for x in final_cliques]
-        for j, clique in enumerate(final_cliques):
-            clique.name = "%s_c%s" % (cluster.name, j + 1)
-
-    final_cliques.append(cluster)
-    return final_cliques
-
-
-def homolog_caller(cluster, local_all_by_all, cluster_list, rank, seqbuddy, global_all_by_all=None, steps=1000,
-                   global_taxa_count=None, quiet=True, _clique_check=True, recursion=True, ):
-
+def orthogroup_caller(master_cluster, cluster_list, seqbuddy, steps=1000, quiet=True):
+    """
+    Run MCMCMC on MCL to find the best orthogroups
+    :param master_cluster: The group to be subdivided
+    :type master_cluster: Cluster
+    :param cluster_list: When a seq_ids is finalized after recursion, it is appended to this list
+    :param seqbuddy: The sequences that are included in the master seq_ids
+    :param steps: How many MCMCMC iterations to run TODO: calculate this on the fly
+    :param quiet: Suppress StdErr
+    :return: list of seq_ids objects
+    """
     temp_dir = MyFuncs.TempDir()
-
-    local_all_by_all.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
+    master_cluster.sim_scores.to_csv("%s/input.csv" % temp_dir.path, header=None, index=False, sep="\t")
 
     inflation_var = mcmcmc.Variable("I", 1.1, 20)
-    gq_var = mcmcmc.Variable("gq", min(local_all_by_all[2]), max(local_all_by_all[2]))
+    gq_var = mcmcmc.Variable("gq", min(master_cluster.sim_scores.score), max(master_cluster.sim_scores.score))
 
     try:
         with open("%s/max.txt" % temp_dir.path, "w") as _ofile:
             _ofile.write("-1000000000")
 
         mcmcmc_factory = mcmcmc.MCMCMC([inflation_var, gq_var], mcmcmc_mcl, steps=steps, sample_rate=1,
-                                       params=["%s" % temp_dir.path, False, False, global_taxa_count], quiet=quiet,
+                                       params=["%s" % temp_dir.path, False, seqbuddy, master_cluster], quiet=quiet,
                                        outfile="%s/mcmcmc_out.csv" % temp_dir.path)
 
     except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
-        cluster_list.append(cluster)
-        temp_dir.save("%s/mcmcmc/group_%s" % (in_args.outdir, rank))
+        cluster_list.append(master_cluster)
+        temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name))
         return cluster_list
 
     # Set a 'worst score' that is reasonable for the data set
@@ -590,47 +443,50 @@ def homolog_caller(cluster, local_all_by_all, cluster_list, rank, seqbuddy, glob
     for chain in mcmcmc_factory.chains:
         worst_score = chain.raw_min if chain.raw_min < worst_score else worst_score
 
-    mcmcmc_factory.reset_params(["%s" % temp_dir.path, worst_score, global_all_by_all, global_taxa_count])
+    mcmcmc_factory.reset_params(["%s" % temp_dir.path, worst_score, seqbuddy, master_cluster])
     mcmcmc_factory.run()
     mcmcmc_output = pd.read_csv("%s/mcmcmc_out.csv" % temp_dir.path, "\t")
 
     best_score = max(mcmcmc_output["result"])
-    if best_score <= cluster.score():
-        if _clique_check:
-            cluster_list += clique_checker(cluster, local_all_by_all)
-        else:
-            cluster_list.append(cluster)
-        temp_dir.save("%s/mcmcmc/group_%s" % (in_args.outdir, rank))
+    if best_score <= master_cluster.score():
+        cluster_list.append(master_cluster)
+        temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name))
         return cluster_list
 
-    mcl_clusters = Clusters("%s/output.groups" % temp_dir.path, global_taxa_count=global_taxa_count)
-    _counter = 1
-    for _clust in mcl_clusters.clusters:
-        next_rank = "%s_%s" % (rank, _counter)
-        _clust.name = next_rank
-        _counter += 1
-        if len(_clust.cluster) in [1, 2]:
-            cluster_list.append(_clust)
+    mcl_clusters = parse_mcl_clusters("%s/best_group" % temp_dir.path)
+    for sub_cluster in mcl_clusters.clusters:
+        cluster_ids = md5_hash("".join(sorted(sub_cluster)))
+        sim_scores = pd.read_csv("%s/%s" % (master_cluster.similarity_graphs.path, cluster_ids), index=False)
+        sub_cluster = Cluster(sub_cluster, sim_scores=sim_scores, _parent=master_cluster)
+        if len(sub_cluster) in [1, 2]:
+            cluster_list.append(sub_cluster)
             continue
 
         seqbuddy_copy = Sb.make_copy(seqbuddy)
-        seqbuddy_copy = Sb.pull_recs(seqbuddy_copy, ["^%s$" % rec_id for rec_id in _clust.cluster])
-        _scores_data = create_all_by_all_scores(seqbuddy_copy, group=_clust.name)
-
-        sub_cluster = pd.concat([_scores_data[0], _scores_data[1]])
-        sub_cluster = sub_cluster.value_counts()
-        sub_cluster = Cluster([i for i in sub_cluster.index], _name=next_rank)
+        seqbuddy_copy = Sb.pull_recs(seqbuddy_copy, ["^%s$" % rec_id for rec_id in sub_cluster.seq_ids])
 
         # Recursion...
-        if recursion:
-            cluster_list = homolog_caller(sub_cluster, _scores_data, cluster_list, next_rank, seqbuddy=seqbuddy_copy,
-                                          steps=steps, global_all_by_all=global_all_by_all,
-                                          global_taxa_count=global_taxa_count, quiet=quiet, _clique_check=_clique_check)
-        else:
-            cluster_list.append(_clust)
+        cluster_list = orthogroup_caller(sub_cluster, cluster_list, seqbuddy=seqbuddy_copy, steps=steps, quiet=quiet,)
 
-    temp_dir.save("%s/mcmcmc/group_%s" % (in_args.outdir, rank))
+    temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name))
     return cluster_list
+
+
+def parse_mcl_clusters(path):
+    with open(path, "r") as _ifile:
+        clusters = _ifile.read()
+    clusters = clusters.strip().split("\n")
+    clusters = [cluster.strip().split("\t") for cluster in clusters]
+    return clusters
+
+
+def write_mcl_clusters(clusters, path):
+    clusters_string = ""
+    for cluster in clusters:
+        clusters_string += "%s\n" % "\t".join(cluster.seq_ids)
+    with open(path, "w") as _ofile:
+        _ofile.write(clusters_string.strip())
+    return
 
 
 def merge_singles(clusters, scores):
@@ -671,7 +527,7 @@ def merge_singles(clusters, scores):
 
     small_clusters = {x: small_clusters[j] for j, x in enumerate(small_group_names)}
     for small_group_id, l_clusts in small_to_large_dict.items():
-        # Convert data into list of numpy arrays that sm.stats can read, also get average scores for each cluster
+        # Convert data into list of numpy arrays that sm.stats can read, also get average scores for each seq_ids
         data = [np.array(x) for x in l_clusts.values()]
         averages = pd.Series()
         for j, group in enumerate(data):
@@ -710,9 +566,9 @@ def merge_singles(clusters, scores):
 def score_sequences(_pair, args):
     # Calculate the best possible scores, and divide by the observed scores
     id1, id2 = _pair
-    alignbuddy, psi_pred_files, outfile = args
+    alb_obj, psi_pred_files, outfile = args
     id_regex = "^%s$|^%s$" % (id1, id2)
-    alb_copy = Alb.make_copy(alignbuddy)
+    alb_copy = Alb.make_copy(alb_obj)
     Alb.pull_records(alb_copy, id_regex)
     observed_score = 0
     seq1_best = 0
@@ -761,14 +617,19 @@ def score_sequences(_pair, args):
     final_score = (ss_score * 0.3) + (subs_mat_score * 0.7)
     with lock:
         with open(outfile, "a") as _ofile:
-            _ofile.write("%s\t%s\t%s\n" % (id1, id2, final_score))
+            _ofile.write("\n%s,%s,%s" % (id1, id2, final_score))
     return
 
 
-def create_all_by_all_scores(seqs, group):
-    printer.write("Running MAFFT")
-    alignment = Alb.generate_msa(Sb.make_copy(seqs), tool="mafft", params="--globalpair --thread -1", quiet=True)
-    printer.write("Updating PsiPred files")
+def create_all_by_all_scores(seqbuddy, quiet=False):
+    """
+    Generate a multiple sequence alignment and pull out all-by-all similarity graph
+    :param seqbuddy: SeqBuddy object
+    :param quiet: Supress multicore output
+    :return:
+    """
+    alignment = Alb.generate_msa(Sb.make_copy(seqbuddy), tool="mafft", params="--globalpair --thread -1", quiet=True)
+
     # Need to specify what columns the PsiPred files map to now that there are gaps.
     psi_pred_files = {}
     for rec in alignment.records_iter():
@@ -782,8 +643,8 @@ def create_all_by_all_scores(seqs, group):
                 ss_counter += 1
         psi_pred_files[rec.id] = ss_file
 
-    printer.write("Removing gaps")
     alignment = Alb.trimal(alignment, "gappyout")
+
     # Re-update PsiPred files, now that some columns are removed
     for rec in alignment.records_iter():
         new_psi_pred = []
@@ -792,9 +653,6 @@ def create_all_by_all_scores(seqs, group):
                 new_psi_pred.append(list(row)[1:])
         psi_pred_files[rec.id] = pd.DataFrame(new_psi_pred, columns=["indx", "aa", "ss", "coil_prob",
                                                                      "helix_prob", "sheet_prob"])
-
-    printer.write("Preparing to calculate Sim scores")
-    alignment.write("%s/alignments/group_%s.aln" % (in_args.outdir, group))
     ids1 = [rec.id for rec in alignment.records_iter()]
     ids2 = [rec.id for rec in alignment.records_iter()]
     all_by_all = []
@@ -802,15 +660,18 @@ def create_all_by_all_scores(seqs, group):
         del ids2[ids2.index(rec1)]
         for rec2 in ids2:
             all_by_all.append((rec1, rec2))
-    outfile = "%s/sim_scores/group_%s.csv" % (in_args.outdir, group)
+
+    outfile = MyFuncs.TempFile()
+    outfile.write("seq1,seq2,score")
     printer.clear()
-    MyFuncs.run_multicore_function(all_by_all, score_sequences, [alignment, psi_pred_files, outfile])
-    _output = pd.read_csv(outfile, sep="\t", header=None)
-    return _output
+    MyFuncs.run_multicore_function(all_by_all, score_sequences, [alignment, psi_pred_files, outfile.path], quiet=quiet)
+    sim_scores = pd.read_csv(outfile.path, index_col=False)
+    return alignment, sim_scores
 
 if __name__ == '__main__':
+
     import argparse
-    parser = argparse.ArgumentParser(prog="homolog_caller", description="",
+    parser = argparse.ArgumentParser(prog="orthogroup_caller", description="",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("sequences", help="Location of sequence file", action="store")
@@ -854,7 +715,7 @@ if __name__ == '__main__':
     best = None
     best_clusters = None
     lock = Lock()
-    printer = MyFuncs.DynamicPrint()
+    printer = MyFuncs.DynamicPrint(quiet=in_args.quiet)
 
     sequences = Sb.SeqBuddy(in_args.sequences)
     PHAT = make_full_mat(SeqMat(MatrixInfo.phat75_73))
@@ -881,29 +742,35 @@ if __name__ == '__main__':
     if in_args.psi_pred and os.path.isdir(in_args.psi_pred):
         files = os.listdir(in_args.psi_pred)
         for f in files:
-            shutil.copyfile("%s/%s" % (in_args.psi_pred, f), "%spsi_pred/%s" % (in_args.outdir, f))
+            shutil.copyfile("%s/%s" % (in_args.psi_pred, f), "%s/psi_pred/%s" % (in_args.outdir, f))
 
     print("\nExecuting PSI-Pred")
     MyFuncs.run_multicore_function(sequences.records, _psi_pred)
 
     print("\nGenerating initial all-by-all")
-    scores_data = create_all_by_all_scores(sequences, group="0")
+    #alignbuddy, scores_data = create_all_by_all_scores(sequences)
+    alignbuddy = Alb.generate_msa(Sb.make_copy(sequences), tool="mafft", params="--globalpair --thread -1", quiet=True)
+    alignbuddy.write("%s/alignments/group_0.aln" % in_args.outdir)
+    scores_data = pd.read_csv("temp_group0.csv", index_col=False)
+    scores_data.to_csv("%s/sim_scores/group_0.csv" % in_args.outdir, index=False)
+    group_0 = pd.concat([scores_data.seq1, scores_data.seq2])
+    group_0 = group_0.value_counts()
+    group_0 = Cluster([i for i in group_0.index], scores_data)
 
-    master_cluster = pd.concat([scores_data[0], scores_data[1]])
-    master_cluster = master_cluster.value_counts()
-    master_cluster = Cluster([i for i in master_cluster.index], _name="0")
+    print("\nScoring base cluster")
+    group_0.score()
 
-    taxa_count = [x.split("-")[0] for x in master_cluster.cluster]
-    taxa_count = pd.Series(taxa_count)
-    taxa_count = taxa_count.value_counts()
+    #taxa_count = [x.split("-")[0] for x in master_cluster.seq_ids]
+    #taxa_count = pd.Series(taxa_count)
+    #taxa_count = taxa_count.value_counts()
 
     print("Creating clusters")
     final_clusters = []
-    final_clusters = homolog_caller(master_cluster, scores_data, final_clusters, rank=0, seqbuddy=sequences,
-                                    global_all_by_all=scores_data,
-                                    steps=in_args.mcmcmc_steps, global_taxa_count=taxa_count, quiet=False,
-                                    _clique_check=clique_check, recursion=recursion_check)
-
+    final_clusters = orthogroup_caller(group_0, final_clusters, seqbuddy=sequences,
+                                       steps=in_args.mcmcmc_steps, quiet=False)
+    print("Done")
+    print(final_clusters)
+    sys.exit()
     # Try to fold singletons and doublets back into groups.
     if not in_args.supress_singlet_folding:
         final_clusters = merge_singles(final_clusters, scores_data)
