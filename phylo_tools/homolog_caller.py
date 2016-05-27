@@ -45,14 +45,19 @@ class Cluster(object):
         :type sim_scores: pandas.DataFrame
         :param _parent: Parental seq_ids
         :type _parent: Cluster
+        :param clique: Specify whether cluster is a clique or not
+        :type clique: bool
         """
         self.taxa = {}
         self.sim_scores = sim_scores
         self.parent = _parent
         self._subgroup_counter = 0
+        self._clique_counter = 0
+        self.clique = clique
         self.cliques = None
         self._score = None
         self.collapsed_genes = {}  # If paralogs are reciprocal best hits, collapse them
+        self._name = None
 
         if clique and not _parent:
             raise AttributeError("A clique cannot be declared without including its parental seq_ids.")
@@ -61,12 +66,6 @@ class Cluster(object):
             self.cluster_score_file = _parent.cluster_score_file
             self.similarity_graphs = _parent.similarity_graphs
             self.lock = _parent.lock
-            if clique:
-                self.name = "%s_c0" % _parent._name if not _parent.cliques else \
-                    "%s_c%s" % (_parent._name, len(_parent.cliques) + 1)
-            else:
-                self._name = "%s_%s" % (_parent._name, _parent._subgroup_counter)
-                _parent._subgroup_counter += 1
             for indx, genes in _parent.collapsed_genes.items():
                 if indx in seq_ids:
                     self.collapsed_genes[indx] = genes
@@ -119,25 +118,35 @@ class Cluster(object):
             self.seq_ids = collapsed_cluster
 
     def _get_best_hits(self, gene):
-        try:
-            best_hits = self.sim_scores[(self.sim_scores.seq1 == gene) | (self.sim_scores.seq2 == gene)]
-        except TypeError:
-            print(self.sim_scores)
-            sys.exit()
-        try:
+        best_hits = self.sim_scores[(self.sim_scores.seq1 == gene) | (self.sim_scores.seq2 == gene)]
+        if not best_hits.empty:
             best_hits = best_hits.loc[best_hits.score == max(best_hits.score)].values
-        except ValueError:
-            print(gene)
-            sys.exit()
-        best_hits = pd.DataFrame(best_hits, columns=["seq1", "seq2", "score"])
+            best_hits = pd.DataFrame(best_hits, columns=["seq1", "seq2", "score"])
         return best_hits
+
+    def set_name(self):
+        if self.name():
+            pass
+        elif not self.parent.name():
+            raise ValueError("Parent of current cluster has not been named.")
+        elif self.clique:
+            self._name = "%s_c%s" % (self.parent.name(), self.parent._clique_counter)
+            self.parent._clique_counter += 1
+        else:
+            self._name = "%s_%s" % (self.parent.name(), self.parent._subgroup_counter)
+            self.parent._subgroup_counter += 1
+            if self.cliques and self.cliques[0]:
+                for clique in self.cliques:
+                    clique.set_name()
+        return
 
     def compare(self, query):
         matches = set(self.seq_ids).intersection(query.seq_ids)
         weighted_match = (len(matches) * 2.) / (len(self) + query.len)
-        print("name: %s, matches: %s, weighted_match: %s" % (self.name, len(matches), weighted_match))
+        print("name: %s, matches: %s, weighted_match: %s" % (self.name(), len(matches), weighted_match))
         return weighted_match
 
+    ''' Delete this or refactor to do a new alignment for a proper subcluster (probably better to refactor).
     def sub_cluster(self, id_list):
         sim_scores = pd.DataFrame()
         for gene in id_list:
@@ -150,8 +159,9 @@ class Cluster(object):
             scores = pd.concat([seq1_scores, seq2_scores])
             sim_scores = sim_scores.append(scores)
         sim_scores = sim_scores.drop_duplicates()
-        subcluster = Cluster(id_list, sim_scores, self)
+        subcluster = Cluster(id_list, sim_scores, _parent=self)
         return subcluster
+    '''
 
     def name(self):
         return self._name
@@ -246,7 +256,6 @@ class Cluster(object):
         seq_ids = md5_hash("".join(sorted(self.seq_ids)))
         if seq_ids in prev_scores.cluster.values:
             self._score = float(prev_scores.score[prev_scores.cluster == seq_ids])
-            print("Previously calculated! %s" % self._score)  # ToDo: Delete this line
             return self._score
 
         # Don't ignore the possibility of cliques, which will alter the score.
@@ -254,6 +263,8 @@ class Cluster(object):
         decliqued_cluster = self.decliqued()
         self._score = self.raw_score(decliqued_cluster)
         for clique in self.cliques:
+            if not clique:
+                break
             clique_ids = md5_hash("".join(sorted(clique.seq_ids)))
             if clique_ids in prev_scores.cluster.values:
                 self._score += float(prev_scores.score[prev_scores.cluster == clique_ids])
@@ -307,7 +318,7 @@ class Cluster(object):
             taxa.setdefault(taxon, [])
             taxa[taxon].append(gene)
 
-        # An entire seq_ids should never consist of a single taxa because I've stripped out reciprocal best hits paralogs
+        # An entire seq_ids should never consist of a single taxa because I've stripped out reciprocal best hit paralogs
         if len(taxa) == 1:
             raise ReferenceError("Only a single taxa found in seq_ids...")
 
@@ -388,13 +399,17 @@ def mcmcmc_mcl(args, params):
         if cluster_ids in prev_scores.cluster.values:
             with parent_cluster.lock:
                 sim_scores = pd.read_csv("%s/%s" % (parent_cluster.similarity_graphs.path, cluster_ids), index_col=False)
-            score += float(prev_scores.score[prev_scores.cluster == cluster_ids])
+                scores = prev_scores.score[prev_scores.cluster == cluster_ids]
+                if len(scores) > 1:
+                    prev_scores = prev_scores.drop_duplicates()
+                    prev_scores.to_csv(parent_cluster.cluster_score_file.path, index=False)
+            score += float()
         else:
             sb_copy = Sb.make_copy(seqbuddy)
             sb_copy = Sb.pull_recs(sb_copy, "|".join(["^%s$" % _id for _id in cluster]))
             alb_obj, sim_scores = create_all_by_all_scores(sb_copy, quiet=True)
 
-        cluster = Cluster(cluster, sim_scores)
+        cluster = Cluster(cluster, sim_scores, _parent=parent_cluster)
         clusters[indx] = cluster
         score += cluster.score()
 
@@ -435,7 +450,7 @@ def orthogroup_caller(master_cluster, cluster_list, seqbuddy, steps=1000, quiet=
 
     except RuntimeError:  # Happens when mcmcmc fails to find different initial chain parameters
         cluster_list.append(master_cluster)
-        temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name))
+        temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name()))
         return cluster_list
 
     # Set a 'worst score' that is reasonable for the data set
@@ -449,16 +464,18 @@ def orthogroup_caller(master_cluster, cluster_list, seqbuddy, steps=1000, quiet=
 
     best_score = max(mcmcmc_output["result"])
     if best_score <= master_cluster.score():
+        master_cluster.set_name()
         cluster_list.append(master_cluster)
-        temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name))
+        temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name()))
         return cluster_list
 
     mcl_clusters = parse_mcl_clusters("%s/best_group" % temp_dir.path)
-    for sub_cluster in mcl_clusters.clusters:
+    for sub_cluster in mcl_clusters:
         cluster_ids = md5_hash("".join(sorted(sub_cluster)))
-        sim_scores = pd.read_csv("%s/%s" % (master_cluster.similarity_graphs.path, cluster_ids), index=False)
+        sim_scores = pd.read_csv("%s/%s" % (master_cluster.similarity_graphs.path, cluster_ids), index_col=False)
         sub_cluster = Cluster(sub_cluster, sim_scores=sim_scores, _parent=master_cluster)
         if len(sub_cluster) in [1, 2]:
+            sub_cluster.set_name()
             cluster_list.append(sub_cluster)
             continue
 
@@ -468,7 +485,7 @@ def orthogroup_caller(master_cluster, cluster_list, seqbuddy, steps=1000, quiet=
         # Recursion...
         cluster_list = orthogroup_caller(sub_cluster, cluster_list, seqbuddy=seqbuddy_copy, steps=steps, quiet=quiet,)
 
-    temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name))
+    temp_dir.save("%s/mcmcmc/%s" % (in_args.outdir, master_cluster.name()))
     return cluster_list
 
 
@@ -495,11 +512,11 @@ def merge_singles(clusters, scores):
     large_clusters = []
     large_group_names = []
     for cluster in clusters:
-        if len(cluster.cluster) > 2:
-            large_group_names.append(cluster.name)
+        if len(cluster.seq_ids) > 2:
+            large_group_names.append(cluster.name())
             large_clusters.append(cluster)
         else:
-            small_group_names.append(cluster.name)
+            small_group_names.append(cluster.name())
             small_clusters.append(cluster)
 
     # Convert the large_clusters list to a dict using group name as key
@@ -507,10 +524,10 @@ def merge_singles(clusters, scores):
 
     small_to_large_dict = {}
     for sclust in small_clusters:
-        small_to_large_dict[sclust.name] = {_ind: [] for _ind, value in large_clusters.items()}
-        for sgene in sclust.cluster:
+        small_to_large_dict[sclust.name()] = {_ind: [] for _ind, value in large_clusters.items()}
+        for sgene in sclust.seq_ids:
             for key, lclust in large_clusters.items():
-                for lgene in lclust.cluster:
+                for lgene in lclust.seq_ids:
                     score = scores.loc[:][scores[0] == sgene]
                     score = score.loc[:][score[1] == lgene]
 
@@ -523,7 +540,7 @@ def merge_singles(clusters, scores):
                     else:
                         score = float(score[2])
 
-                    small_to_large_dict[sclust.name][lclust.name].append(score)
+                    small_to_large_dict[sclust.name()][lclust.name()].append(score)
 
     small_clusters = {x: small_clusters[j] for j, x in enumerate(small_group_names)}
     for small_group_id, l_clusts in small_to_large_dict.items():
@@ -554,7 +571,7 @@ def merge_singles(clusters, scores):
                     break
         else:
             # The gene can be grouped with the max_ave group
-            large_clusters[max_ave].cluster += small_clusters[small_group_id].cluster
+            large_clusters[max_ave].seq_ids += small_clusters[small_group_id].seq_ids
             del small_clusters[small_group_id]
 
     clusters = [value for _ind, value in large_clusters.items()]
@@ -628,44 +645,48 @@ def create_all_by_all_scores(seqbuddy, quiet=False):
     :param quiet: Supress multicore output
     :return:
     """
-    alignment = Alb.generate_msa(Sb.make_copy(seqbuddy), tool="mafft", params="--globalpair --thread -1", quiet=True)
+    if len(seqbuddy) == 1:
+        alignment = Alb.AlignBuddy(str(seqbuddy))
+        sim_scores = pd.DataFrame(data=None, columns=["seq1", "seq2", "score"])
+    else:
+        alignment = Alb.generate_msa(Sb.make_copy(seqbuddy), tool="mafft", params="--globalpair --thread -1", quiet=True)
 
-    # Need to specify what columns the PsiPred files map to now that there are gaps.
-    psi_pred_files = {}
-    for rec in alignment.records_iter():
-        ss_file = pd.read_csv("%s/psi_pred/%s.ss2" % (in_args.outdir, rec.id), comment="#",
-                              header=None, delim_whitespace=True)
-        ss_file.columns = ["indx", "aa", "ss", "coil_prob", "helix_prob", "sheet_prob"]
-        ss_counter = 0
-        for indx, residue in enumerate(rec.seq):
-            if residue != "-":
-                ss_file.set_value(ss_counter, "indx", indx)
-                ss_counter += 1
-        psi_pred_files[rec.id] = ss_file
+        # Need to specify what columns the PsiPred files map to now that there are gaps.
+        psi_pred_files = {}
+        for rec in alignment.records_iter():
+            ss_file = pd.read_csv("%s/psi_pred/%s.ss2" % (in_args.outdir, rec.id), comment="#",
+                                  header=None, delim_whitespace=True)
+            ss_file.columns = ["indx", "aa", "ss", "coil_prob", "helix_prob", "sheet_prob"]
+            ss_counter = 0
+            for indx, residue in enumerate(rec.seq):
+                if residue != "-":
+                    ss_file.set_value(ss_counter, "indx", indx)
+                    ss_counter += 1
+            psi_pred_files[rec.id] = ss_file
 
-    alignment = Alb.trimal(alignment, "gappyout")
+        alignment = Alb.trimal(alignment, "gappyout")
 
-    # Re-update PsiPred files, now that some columns are removed
-    for rec in alignment.records_iter():
-        new_psi_pred = []
-        for row in psi_pred_files[rec.id].itertuples():
-            if alignment.alignments[0].position_map[int(row[1])][1]:
-                new_psi_pred.append(list(row)[1:])
-        psi_pred_files[rec.id] = pd.DataFrame(new_psi_pred, columns=["indx", "aa", "ss", "coil_prob",
-                                                                     "helix_prob", "sheet_prob"])
-    ids1 = [rec.id for rec in alignment.records_iter()]
-    ids2 = [rec.id for rec in alignment.records_iter()]
-    all_by_all = []
-    for rec1 in ids1:
-        del ids2[ids2.index(rec1)]
-        for rec2 in ids2:
-            all_by_all.append((rec1, rec2))
+        # Re-update PsiPred files, now that some columns are removed
+        for rec in alignment.records_iter():
+            new_psi_pred = []
+            for row in psi_pred_files[rec.id].itertuples():
+                if alignment.alignments[0].position_map[int(row[1])][1]:
+                    new_psi_pred.append(list(row)[1:])
+            psi_pred_files[rec.id] = pd.DataFrame(new_psi_pred, columns=["indx", "aa", "ss", "coil_prob",
+                                                                         "helix_prob", "sheet_prob"])
+        ids1 = [rec.id for rec in alignment.records_iter()]
+        ids2 = [rec.id for rec in alignment.records_iter()]
+        all_by_all = []
+        for rec1 in ids1:
+            del ids2[ids2.index(rec1)]
+            for rec2 in ids2:
+                all_by_all.append((rec1, rec2))
 
-    outfile = MyFuncs.TempFile()
-    outfile.write("seq1,seq2,score")
-    printer.clear()
-    MyFuncs.run_multicore_function(all_by_all, score_sequences, [alignment, psi_pred_files, outfile.path], quiet=quiet)
-    sim_scores = pd.read_csv(outfile.path, index_col=False)
+        outfile = MyFuncs.TempFile()
+        outfile.write("seq1,seq2,score")
+        printer.clear()
+        MyFuncs.run_multicore_function(all_by_all, score_sequences, [alignment, psi_pred_files, outfile.path], quiet=quiet)
+        sim_scores = pd.read_csv(outfile.path, index_col=False)
     return alignment, sim_scores
 
 if __name__ == '__main__':
@@ -706,6 +727,8 @@ if __name__ == '__main__':
         check = MyFuncs.ask("Output directory already exists, overwrite it [y]/n?") if not in_args.force else True
         if check:
             shutil.rmtree(in_args.outdir)
+            while os.path.exists(in_args.outdir):
+                pass
         else:
             print("Program aborted. Output directory required.")
             sys.exit()
@@ -780,13 +803,13 @@ if __name__ == '__main__':
     while len(final_clusters) > 0:
         _max = (0, 0)
         for ind, clust in enumerate(final_clusters):
-            if len(clust.cluster) > _max[1]:
-                _max = (ind, len(clust.cluster))
+            if len(clust.seq_ids) > _max[1]:
+                _max = (ind, len(clust.seq_ids))
 
         ind, _max = _max[0], final_clusters[_max[0]]
         del final_clusters[ind]
-        output += "group_%s\t%s\t" % (_max.name, _max.score())
-        for seq_id in _max.cluster:
+        output += "group_%s\t%s\t" % (_max.name(), _max.score())
+        for seq_id in _max.seq_ids:
             output += "%s\t" % seq_id
         output = "%s\n" % output.strip()
 
