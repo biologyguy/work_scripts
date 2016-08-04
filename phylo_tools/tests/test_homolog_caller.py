@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import pytest
-from phylo_tools.homolog_caller import Cluster, Clusters, split_all_by_all, mcmcmc_mcl, clique_checker, homolog_caller, \
+from phylo_tools.homolog_caller import Cluster, Clusters, split_all_by_all, mcmcmc_mcl, clique_checker, orthogroup_caller, \
     merge_singles, support
 
 @pytest.fixture(scope="session")

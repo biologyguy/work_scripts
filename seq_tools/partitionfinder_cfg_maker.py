@@ -8,8 +8,6 @@ found and how to break them up into data blocks. The actual program can be run d
 For some PartitionFinder references, see:   - Lanfear et al., 2012 doi: 10.1093/molbev/mss020
                                             - Lanfear et al., 2014 doi: 10.1186/1471-2148-14-82
 """
-
-from Bio import AlignIO
 from Bio.Alphabet import IUPAC
 import argparse
 import os
@@ -18,26 +16,21 @@ import re
 from subprocess import Popen
 from time import clock
 import MyFuncs
-import SeqBuddy
+import AlignBuddy as Alb
 import shutil
-# from workshop.alignBuddy import screw_formats_align
 
 
 # !!! Replace this with a module at some point...
-def screw_formats_align(_seqs, _out_format):
+def screw_formats_align(_alignbuddy):
     _output = ""
-    if _out_format == "phylipi":
-        _output += " %s %s\n" % (len(_seqs), len(_seqs[0].seq))
-        max_id_length = 0
-        for _seq in _seqs:
-            max_id_length = len(_seq.id) if len(_seq.id) > max_id_length else max_id_length
+    _output += " %s %s\n" % (len(_alignbuddy.records()), _alignbuddy.lengths()[0])
+    max_id_length = 0
+    for rec in _alignbuddy.records():
+        max_id_length = len(rec.id) if len(rec.id) > max_id_length else max_id_length
 
-        for _seq in _seqs:
-            _seq_id = _seq.id.ljust(max_id_length)
-            _output += "%s %s\n" % (_seq_id, _seq.seq)
-    else:
-        for _seq in _seqs:
-            _output += _seq.format(_out_format)
+    for rec in _alignbuddy.records():
+        _seq_id = rec.id.ljust(max_id_length)
+        _output += "%s  %s\n" % (_seq_id, rec.seq)
 
     return _output
 
@@ -139,9 +132,8 @@ def get_blocks(blocks_path):
 parser = argparse.ArgumentParser(prog="partitionfinder_cgf_maker",
                                  description="Creates a new .cgf configuration file for partitionfinder",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("-i", '--blocks_file',
-                    help='Location of data_blocks.csv file that lists the alignments and how to break them up.',
-                    action='store')
+parser.add_argument("blocks_file", action='store',
+                    help='Location of data_blocks.csv file that lists the alignments and how to break them up.')
 parser.add_argument("-ff", "--file_format", help="Print an example 'data_blocks.csv' file and exit.",
                     action="store_true", default=False)
 parser.add_argument("-o", "--out_dir", help='Where would you like the output directories and files?',
@@ -166,9 +158,6 @@ start_time = round(clock())
 if in_args.file_format:
     print(print_file_format())
     sys.exit()
-
-if not in_args.blocks_file:
-    sys.exit("Sorry, but you need to specify a data_blocks.csv file with -i. Use -h for instructions.")
 
 blocks_file = os.path.abspath(in_args.blocks_file)
 blocks = get_blocks(blocks_file)
@@ -204,7 +193,7 @@ for block in blocks:
         else:
             range_ids.append(_range[0])
         if int(_range[1]) != counter:
-            sys.exit("Blocks are not eaqually spaced. The offender is under the %s set" % file_name)
+            sys.exit("Blocks are not equally spaced. The offender is under the %s set" % file_name)
 
         counter = int(_range[2]) + 1
 
@@ -223,31 +212,22 @@ for block in blocks:
     if not os.path.exists(new_dir):
         os.mkdir(new_dir)
 
-    seqs = SeqBuddy.SeqBuddy(path)
-    phylip = open("%s/%s.phy" % (new_dir, file_name), "w")
-    hashed_phylip = open("%s/%s_hashed.phy" % (new_dir, file_name), "w")
-    hash_map = open("%s/%s_hash_map.csv" % (new_dir, file_name), "w")
+    alignbuddy = Alb.AlignBuddy(path)
+    with open("%s/%s.phy" % (new_dir, file_name), 'w') as ofile:
+        ofile.write(screw_formats_align(alignbuddy))
 
-    clean_alignment = screw_formats_align(seqs.seqs, "phylipi")
-    phylip.write(clean_alignment)
-
-    id_hashes = SeqBuddy.hash_seqeunce_ids(seqs)
-    for i in id_hashes[0]:
-        hash_map.write("%s,%s\n" % (i[0], i[1]))
-
-    alignment = screw_formats_align(id_hashes[1].seqs, "phylipi")
-    hashed_phylip.write(alignment)
-
-    phylip.close()
-    hashed_phylip.close()
-    hash_map.close()
+    # partitionfinder is super fussy about the PHYLIP format used. There needs to be exactly 10 characters in the IDs,
+    # with at least 2 spaces before the start of the actual sequence. So annoying.
+    Alb.hash_ids(alignbuddy, hash_length=8)
+    with open("%s/%s_hashed.phy" % (new_dir, file_name), "w") as ofile:
+        ofile.write(screw_formats_align(alignbuddy))
 
     # Make cfg file
     seq_ranges = block.split("\n")[1:]
     if seq_ranges[-1] == "":
         seq_ranges = seq_ranges[:-1]
 
-    alphabet = SeqBuddy._guess_alphabet(seqs)
+    alphabet = Alb.guess_alphabet(alignbuddy)
     make_cfg(new_dir, seq_ranges, file_name)
     if in_args.run_partfinder:
         os.chdir(new_dir)

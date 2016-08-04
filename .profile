@@ -5,18 +5,19 @@ export DYLD_LIBRARY_PATH=/usr/local/mysql/lib/
 export HHLIB=/usr/local/bioinf_tools/hhsuite-2.0.16/lib/hh/
 export CLASSPATH=.:/usr/local/Java/
 export TMPDIR=/Volumes/Zippy/.sysTemp/
+export ANT_HOME=/usr/local/Java/apache-ant-1.9.6/
 
 #PS1='\[\e[0;33m\]\u\[\e[0m\]@\[\e[0;32m\]\h\[\e[0m\]:\[\e[0;34m\]\w\[\e[0m\]\$ '
 
 alias ls="ls -G"
 alias la="ls -a"
-alias ll="ls -l"
+alias ll="ls -lh"
 alias lm="ll | awk '{k=0;for(i=0;i<=8;i++)k+=((substr(\$1,i+2,1)~/[rwx]/)*2^(8-i));if(k)printf(\"%0o \",k);print}'"
 export LSCOLORS=gxFxBxDxbxEgEdxbxgxcGx
 
 alias grep="grep --color=auto"
 
-export PATH=$PATH:/usr/local/bioinf_tools/pagan_v0.61:/Users/bondsr/Documents/work_scripts/utilities:/Users/bondsr/Documents/work_scripts/seq_tools:/Users/bondsr/Documents/work_scripts/phylo_tools
+export PATH=$PATH:/usr/local/bioinf_tools/pagan_v0.61:/Users/bondsr/Documents/work_scripts/utilities:/Users/bondsr/Documents/work_scripts/seq_tools:/Users/bondsr/Documents/work_scripts/phylo_tools:/usr/local/bioinf_tools/sratoolkit/bin:/usr/local/Java/apache-ant-1.9.6/bin
 export PATH=/usr/local/bin:$PATH
 
 alias ipy="python3 /usr/local/anaconda/bin/ipython notebook"
@@ -24,8 +25,6 @@ alias svn=/usr/local/bin/svn-color.py
 alias sudo=/usr/local/bin/sudo
 source ~/.local/bin/bashmarks.sh
 
-
-#export PS1="\u@\h "'$(git branch &>/dev/null; if [ $? -eq 0 ]; then \
 export PS1="\[\e[0;33m\]\u\[\e[0m\]@\[\e[0;32m\]\h\[\e[0m\]: "'$(git branch &>/dev/null; if [ $? -eq 0 ]; then \
 echo "\[\e[0;32m\][\[\e[0;35m\]$(basename `pwd`); \[\e[0;33m\]$(git branch | grep ^*|sed s/\*\ //) \
 $(echo `git status` | grep "nothing to commit" > /dev/null 2>&1; if [ "$?" -eq "0" ]; then \

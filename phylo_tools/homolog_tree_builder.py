@@ -3,7 +3,7 @@
 # Created on: May 30 2015 
 
 """
-Convert the output from homolog_caller into an SVG tree of polytomies
+Convert the output from orthogroup_caller into an SVG tree of polytomies
 """
 import sys
 

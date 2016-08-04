@@ -1,6 +1,11 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 from subprocess import Popen
+import argparse
+import os
+from shutil import which
+import MyFuncs
+import sys
 
 #I was porting this from bash into python, but haven't finished yet. 
 
@@ -8,24 +13,26 @@ from subprocess import Popen
 # required to make a PSIPRED V2 prediction. Note that it assumes that the
 # following programs are in the appropriate directories:
 # blastpgp - PSIBLAST executable (from NCBI toolkit)
+assert which("blastpgp")
 # makemat - IMPALA utility (from NCBI toolkit)
+assert which("makemat")
 # psipred - PSIPRED V3 program
+assert which("psipred")
 # psipass2 - PSIPRED V3 program
+assert which("psipass2")
 
-# NOTE: Script modified to be more cluster friendly (DTJ April 2008)
 
-#argeParse stuff
-parser = argparse.ArgumentParser(prog="psipred", description="wrapper");
-parser.add_argument('fasta', help='');
-parser.add_argument('-d','--dbname', default='/usr/local/blastdbs/uniref90/uniref90_filtered', action='store', help='');
-parser.add_argument('out_dir', help='', action='store');
+parser = argparse.ArgumentParser(prog="psipred", description="wrapper")
+parser.add_argument('fasta', help='')
+parser.add_argument('-d', '--dbname', default='/usr/local/blastdbs/uniref90/uniref90_filtered', action='store', help='')
+parser.add_argument('-o', '--out_dir', help='', action='store', default=os.getcwd())
 in_args = parser.parse_args()
 
 # The name of the BLAST data bank
-dbname = "/usr/local/blastdbs/uniref90/uniref90_filtered"
+dbname = os.path.abspath(in_args.dbname)
 
 # Where the PSIPRED V2 programs have been installed
-execdir = "./bin"
+execdir = which("psipred")
 
 # Where the PSIPRED V2 data files have been installed
 datadir = "./data"

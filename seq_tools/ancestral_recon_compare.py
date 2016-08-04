@@ -123,6 +123,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="ancestral_recon_compare.py", description="")
 
     parser.add_argument("in_file", help="Location of genbank input file", action="store")
+    parser.add_argument("name1", action="store", help="1st gene family name")
+    parser.add_argument("name2", action="store", help="2nd gene family name")
     parser.add_argument("-n", "--num_shuffles", help="How many shuffles to do", type=int, default=10)
     parser.add_argument("-op", "--open_penalty", help="Penalty for opening a gap in pairwise alignment scoring",
                         type=float, default=-10)
@@ -137,6 +139,8 @@ if __name__ == '__main__':
     BLOSUM62 = make_full_mat(SeqMat(MatrixInfo.blosum62))
     BLOSUM45 = make_full_mat(SeqMat(MatrixInfo.blosum45))
 
+    name1 = in_args.name1
+    name2 = in_args.name2
     gap_open = in_args.open_penalty if in_args.open_penalty <= 0 else in_args.open_penalty * -1
     gap_extend = in_args.extend_penalty if in_args.extend_penalty <= 0 else in_args.extend_penalty * -1
     shuffle_iters = in_args.num_shuffles
@@ -159,38 +163,38 @@ if __name__ == '__main__':
         for feat in new_feats:
             Sb.annotate(temp_seqbuddy, _type="other", location=feat)
 
-    anc_panx_ids = []
-    panx_ids = []
-    anc_cx_ids = []
-    cx_ids = []
+    anc_name1_ids = []
+    name1_ids = []
+    anc_name2_ids = []
+    name2_ids = []
 
     for rec in seqbuddy.records:
-        if re.match("Anc_Panx", rec.id):
-            anc_panx_ids.append(rec.id)
-        elif re.match("Anc_Cx", rec.id):
-            anc_cx_ids.append(rec.id)
-        elif re.search("\-Panx", rec.id):
-            panx_ids.append(rec.id)
-        elif re.search("\-Cx", rec.id):
-            cx_ids.append(rec.id)
+        if re.match("Anc_%s" % name1, rec.id):
+            anc_name1_ids.append(rec.id)
+        elif re.match("Anc_%s" % name2, rec.id):
+            anc_name2_ids.append(rec.id)
+        elif re.search("\-%s" % name1, rec.id):
+            name1_ids.append(rec.id)
+        elif re.search("\-%s" % name2, rec.id):
+            name2_ids.append(rec.id)
         else:
             raise IndexError("Not sure what to do with record ID '%s'" % rec.id)
 
     sequence_pairs = []
-    panx_copy = list(anc_panx_ids + panx_ids)
-    for panx1 in anc_panx_ids + panx_ids:
-        panx_copy.remove(panx1)
-        for panx2 in panx_copy:
-            sequence_pairs.append((panx1, panx2))
-        for cx in anc_cx_ids + cx_ids:
-            sequence_pairs.append((panx1, cx))
+    name1_copy = list(anc_name1_ids + name1_ids)
+    for i in anc_name1_ids + name1_ids:
+        name1_copy.remove(i)
+        # for j in name1_copy:
+        #     sequence_pairs.append((i, j))
+        for k in anc_name2_ids + name2_ids:
+            sequence_pairs.append((i, k))
 
     MyFuncs.run_multicore_function(sequence_pairs, mc_run_comparison, [temp_file.path], out_type=sys.stderr)
 
     with open(temp_file.path, "r") as ifile:
-        panxs_to_cxs = ifile.read().split("\n")
+        name1_to_name2 = ifile.read().split("\n")
 
-    print("Panx\tCx\tScore\tShuffle_ave\tShuffle_stdev\tDelta\tBit_score\tShuff_bit_score")
+    print("Gene1\tGene2\tScore\tShuffle_ave\tShuffle_stdev\tDelta\tBit_score\tShuff_bit_score")
 
-    for line in panxs_to_cxs:
+    for line in name1_to_name2:
         print(line)

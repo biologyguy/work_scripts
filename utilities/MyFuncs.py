@@ -36,14 +36,16 @@ import signal
 
 class Timer(object):
     def __init__(self):
-        self.current_time = round(time())
+        self.start = round(time())
+        self.split_time = round(time())
 
-    def start(self):
-        self.current_time = round(time())
-        return
+    def split(self):
+        split = round(time()) - self.split_time
+        self.split_time = round(time())
+        return pretty_time(split)
 
-    def end(self):
-        return pretty_time(round(time()) - self.current_time)
+    def total_elapsed(self):
+        return pretty_time(round(time()) - self.start)
 
 
 class RunTime(object):
@@ -316,7 +318,7 @@ class TempDir(object):
             while file_name in files:  # Catch the very unlikely case that a duplicate occurs
                 file_name = "".join([choice(string.ascii_letters + string.digits) for _ in range(10)])
 
-        open("%s/%s" % (self.path, file_name), "w").close()
+        open("%s/%s" % (self.path, file_name), "w", encoding="utf-8").close()
         self.subfiles.append(file_name)
         return "%s/%s" % (self.path, file_name)
 
@@ -394,7 +396,9 @@ class TempFile(object):
         return content
 
     def clear(self):
-        self.write("", mode="w")
+        self.close()
+        content = "" if self.bm == "" else b""
+        self.write(content, mode="w")
         return
 
     def save(self, location):

@@ -10,14 +10,13 @@ import AlignBuddy as Alb
 import buddy_resources as br
 import zipfile
 import re
+import urllib.request
 
 try:
     from suds.client import Client
 except ImportError:
     print("Please install the 'suds' package to run topcons2_wsdl.py:\n\n$ pip install suds-py3", file=sys.stderr)
     sys.exit(1)
-
-import urllib.request
 
 
 def main(in_args):
