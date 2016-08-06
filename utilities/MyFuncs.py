@@ -23,7 +23,7 @@ Description: Collection of useful classes and functions
 
 from multiprocessing import Process, cpu_count
 import sys
-from time import time
+from time import time, sleep
 from math import floor, ceil
 import os
 from tempfile import TemporaryDirectory
@@ -49,26 +49,30 @@ class Timer(object):
 
 
 class RunTime(object):
-    def __init__(self, prefix="", postfix="", out_type=sys.stdout):
+    def __init__(self, prefix=None, postfix=None, out_type=sys.stdout, sleep=0):
         self.out_type = out_type
-        self.prefix = prefix
-        self.postfix = postfix
+        self.prefix = prefix if prefix else ""
+        self.postfix = postfix if postfix else ""
         self.running_process = None
+        self.sleep = sleep
 
     def _run(self, check_file_path):
         d_print = DynamicPrint(self.out_type)
         start_time = round(time())
         elapsed = 0
         while True:
+            prefix = self.prefix if not hasattr(self.prefix, '__call__') else self.prefix()
+            postfix = self.postfix if not hasattr(self.postfix, '__call__') else self.postfix()
             with open("%s" % check_file_path, "r") as ifile:
                 if round(time()) - start_time == elapsed:
                     continue
                 elif ifile.read() == "Running":
-                    d_print.write("%s%s%s" % (self.prefix, pretty_time(elapsed), self.postfix))
+                    d_print.write("%s%s%s" % (prefix, pretty_time(elapsed), postfix))
                     elapsed = round(time()) - start_time
                 else:
-                    d_print.write("%s%s%s\n" % (self.prefix, pretty_time(elapsed), self.postfix))
+                    d_print.write("%s%s%s\n" % (prefix, pretty_time(elapsed), postfix))
                     break
+            sleep(self.sleep)
         return
 
     def start(self):
