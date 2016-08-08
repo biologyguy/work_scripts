@@ -49,12 +49,13 @@ class Timer(object):
 
 
 class RunTime(object):
-    def __init__(self, prefix=None, postfix=None, out_type=sys.stdout, sleep=0):
+    def __init__(self, prefix=None, postfix=None, out_type=sys.stdout, _sleep=0, final_clear=False):
         self.out_type = out_type
         self.prefix = prefix if prefix else ""
         self.postfix = postfix if postfix else ""
         self.running_process = None
-        self.sleep = sleep
+        self.sleep = _sleep
+        self.final_clear = final_clear
 
     def _run(self, check_file_path):
         d_print = DynamicPrint(self.out_type)
@@ -70,7 +71,10 @@ class RunTime(object):
                     d_print.write("%s%s%s" % (prefix, pretty_time(elapsed), postfix))
                     elapsed = round(time()) - start_time
                 else:
-                    d_print.write("%s%s%s\n" % (prefix, pretty_time(elapsed), postfix))
+                    if not self.final_clear:
+                        d_print.write("%s%s%s\n" % (prefix, pretty_time(elapsed), postfix))
+                    else:
+                        d_print.clear()
                     break
             sleep(self.sleep)
         return
