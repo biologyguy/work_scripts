@@ -33,7 +33,7 @@ if __name__ == '__main__':
     in_args = parser.parse_args()
 
     save_dir = Popen("echo $HISTORYREC", shell=True, stdout=PIPE).communicate()[0].decode()
-    root, dirs, hist_files = next(os.walk("%s/.history/" % save_dir))
+    root, dirs, hist_files = next(os.walk("%s/.history/" % save_dir.strip()))
 
     if in_args.run:
         in_args.run = 1 if not in_args.run[0] else in_args.run[0]
