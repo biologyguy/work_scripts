@@ -10,7 +10,7 @@ import os
 import sys
 import re
 import argparse
-from subprocess import Popen
+from subprocess import Popen, PIPE
 
 if __name__ == '__main__':
     rows, columns = os.popen('stty size', 'r').read().split()
@@ -32,7 +32,8 @@ if __name__ == '__main__':
 
     in_args = parser.parse_args()
 
-    root, dirs, hist_files = next(os.walk("/Volumes/Zippy/.history/"))
+    save_dir = Popen("echo $HISTORYREC", shell=True, stdout=PIPE).communicate()[0].decode()
+    root, dirs, hist_files = next(os.walk("%s/.history/" % save_dir))
 
     if in_args.run:
         in_args.run = 1 if not in_args.run[0] else in_args.run[0]
