@@ -15,7 +15,8 @@ import html
 parser = argparse.ArgumentParser(prog='clean_svg', description='Fix SVG files so they will open in Illustrator')
 
 parser.add_argument('svg_file', help='Location of the file you want to clean', action='store')
-parser.add_argument('-o', '--outfile', help="Save the new file somewhere, otherwise it's sent to stdout.", action='store', default=False)
+parser.add_argument('-o', '--outfile', help="Save the new file somewhere, otherwise it's sent to stdout.",
+                    action='store', default=False)
 parser.add_argument('-i', '--in_place', help="Over-write original file", action='store_true')
 
 in_args = parser.parse_args()
@@ -24,18 +25,10 @@ with open(in_file, "r") as ifile:
     content = ifile.read()
 
 content = html.unescape(content)
-content = re.sub(" ?font-family:.*?;", "", content)
-content = re.sub("Œ±", "α", content)
-content = re.sub("Œ≤", "β", content)
-content = re.sub("Œ≥", "γ", content)
-content = re.sub("Œ∂", "ζ", content)
-content = re.sub("Œµ", "ε", content)
-content = re.sub("Œ∏", "θ", content)
-content = re.sub("Œ∑", "η", content)
-content = re.sub("Œ¥", "δ", content)
-content = re.sub("Œª", "λ", content)
-content = re.sub("œà", "ψ", content)
-
+code2_greek = {"Œ±": "α", "Œ≤": "β", "Œ≥": "γ", "Œ∂": "ζ", "Œµ": "ε",
+               "Œ∏": "θ", "Œ∑": "η", "Œ¥": "δ", "Œª": "λ", "œà": "ψ"}
+for code, greek in code2_greek.items():
+    content = re.sub(">(.*?)%s(.*?)<" % code, r">   \1%s\2<" % greek, content)
 
 if in_args.in_place:
     with open(in_file, "w") as ofile:
