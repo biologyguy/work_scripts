@@ -70,7 +70,7 @@ def loop_names(path_list, _count):
 
         # output the changed files unless -q flag is passed
         if output:
-            stdout("%s/%s\t--->\t%s" % (re.sub(incoming_args.dir, "", dirpath), i, output))
+            stdout("%s\t--->\t%s" % (i, output))
             _count += 1
     return _count
 
