@@ -22,6 +22,7 @@ ancestral_recon/AlignMe/Ctenos*
 ancestral_recon/AlignMe/Testing*
 ancestral_recon/AlignMe/Alignme_output*
 ancestral_recon/AlignMe/Arthros*
+.cache/*
 
 # .ipython checkpoints
 IPython/.ipynb_checkpoints*
