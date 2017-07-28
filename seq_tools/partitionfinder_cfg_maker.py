@@ -15,8 +15,8 @@ import sys
 import re
 from subprocess import Popen
 from time import clock
-import MyFuncs
-import AlignBuddy as Alb
+import buddysuite.buddy_resources as br
+import buddysuite.AlignBuddy as Alb
 import shutil
 
 
@@ -43,8 +43,8 @@ def make_cfg(location, _blocks, phylip_file):
     output += "branchlengths = linked;\n\n"  # options linked/unlinked
 
     output += "## MODELS OF EVOLUTION for PartitionFinder: all | raxml | mrbayes | beast | <list> ##\n"
-    output += "##              for PartitionFinderProtein: all_protein | <list> ##\n"
-    models = "all" if alphabet != IUPAC.protein else "all_protein"
+    output += "##              for PartitionFinderProtein: all | <list> ##\n"
+    models = "all" if alphabet != IUPAC.protein else "all"
     output += "models = %s;\n\n" % models  # options all/some group pf models to test
 
     output += "# MODEL SELECCTION: AIC | AICc | BIC #\n"
@@ -272,4 +272,4 @@ for block in blocks:
 
         os.chdir(blocks_file_dir)
 
-print("Job complete, it ran in %s" % MyFuncs.pretty_time(round(clock()) - start_time))
+print("Job complete, it ran in %s" % br.pretty_time(round(clock()) - start_time))
