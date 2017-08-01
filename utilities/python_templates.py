@@ -35,15 +35,17 @@ in_args = parser.parse_args()
 def argparse_block(white_space=0):
     out = ""
     out += "%simport argparse\n\n" % "".rjust(white_space, " ")
-    out += "%sparser = argparse.ArgumentParser(prog=\"%s\", description=\"\", " \
-           "formatter_class=argparse.ArgumentDefaultsHelpFormatter)\n\n" % \
+    out += "%sparser = argparse.ArgumentParser(prog=\"%s\", description=\"\",\n" % \
            ("".rjust(white_space, " "), in_args.new_file.split("/")[-1].split(".")[0])
-    out += "%sparser.add_argument(\"positional_arg1\", help=\"\", action=\"store\")\n" % "".rjust(white_space, " ")
-    out += "%sparser.add_argument(\"-t\", \"--true\", help=\"\", action=\"store_true\", default=False)\n" \
+    out += "%s                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)\n\n" % \
+           "".rjust(white_space, " ")
+
+    out += "%sparser.add_argument(\"positional_arg1\", action=\"store\", help=\"\")\n" % "".rjust(white_space, " ")
+    out += "%sparser.add_argument(\"-t\", \"--true\", action=\"store_true\", default=False, help=\"\")\n" \
            % "".rjust(white_space, " ")
-    out += "%sparser.add_argument(\"-c\", \"--choice\", help=\"\", type=str, choices=[\"\", \"\"], default=False)\n" \
+    out += "%sparser.add_argument(\"-c\", \"--choice\", type=str, choices=[\"\", \"\"], default=False, help=\"\")\n" \
            % "".rjust(white_space, " ")
-    out += "%sparser.add_argument(\"-m\", \"--multi_arg\", nargs=\"+\", help=\"\", default=[])\n\n" \
+    out += "%sparser.add_argument(\"-m\", \"--multi_arg\", nargs=\"+\", default=[], help=\"\")\n\n" \
            % "".rjust(white_space, " ")
     out += "%sin_args = parser.parse_args()" % "".rjust(white_space, " ")
     return out
