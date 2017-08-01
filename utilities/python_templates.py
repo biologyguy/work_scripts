@@ -25,7 +25,6 @@ parser.add_argument('-nf', '--no_functions', help="Do not include def blocks blo
 parser.add_argument('-nm', '--no_main', help="Do not include a __name__ = '__main__' block.", action='store_true')
 parser.add_argument('-ni', '--no_import', help="Do not import common packages", action='store_true')
 
-parser.add_argument('-t', '--time', help="Set up a runtime counter", action='store_true')
 parser.add_argument('-b', '--binary_loc', help='Specify the location of your python executable for the hashbang',
                     action='store', default="/usr/bin/env python3")
 parser.add_argument('-e', '--encoding', help='Specify the encoding for the file.', action='store', default="utf-8")
@@ -46,7 +45,7 @@ def argparse_block(white_space=0):
            % "".rjust(white_space, " ")
     out += "%sparser.add_argument(\"-m\", \"--multi_arg\", nargs=\"+\", help=\"\", default=[])\n\n" \
            % "".rjust(white_space, " ")
-    out += "%sin_args = parser.parse_args()\n\n" % "".rjust(white_space, " ")
+    out += "%sin_args = parser.parse_args()" % "".rjust(white_space, " ")
     return out
 
 output = ""
@@ -54,53 +53,46 @@ output = ""
 if not in_args.no_shebang:
     output += "#!%s\n" % in_args.binary_loc
 
-output += "# -*- coding: %s -*-\n" % in_args.encoding
+output += "# -*- coding: %s -*-" % in_args.encoding
 today = datetime.date.today()
-output += "# Created on: %s %s %s \n\n" % (today.strftime("%b"), today.day, today.year)
+output += "# Created on: %s %s %s" % (today.strftime("%b"), today.day, today.year)
 
 if not in_args.no_docstrings:
-    output += '"""\nDESCRIPTION OF PROGRAM\n"""\n\n'
+    output += '\n\n"""\nDESCRIPTION OF PROGRAM\n"""'
 
 if not in_args.no_import:
-    output += "import sys\nimport os\nimport re\nimport shutil\nimport MyFuncs\nimport SeqBuddy\n"
-
-if in_args.time:
-    output += "import timeit\n"
+    output += "\n\nimport sys\nimport os\nimport re\nimport shutil"
 
 if not in_args.no_class:
-    output += "\nclass NewClass():\n"
+    output += "\n\n\nclass NewClass():"
     if not in_args.no_docstrings:
-        output += '    """DESCRIPTION OF CLASS"""\n'
+        output += '\n    """DESCRIPTION OF CLASS"""'
 
-    output += "    def __init__(self):\n"
+    output += "\n    def __init__(self):\n"
     output += "        self.x = 1\n\n"
     output += "    def class_def(self):\n"
     output += "        self.x = 1\n"
-    output += "        return self.x\n\n\n"
+    output += "        return self.x"
 
 if not in_args.no_functions:
     for i in range(1, 3):
-        output += "def def%s():\n" % i
+        output += "\n\n\ndef def%s():" % i
         if not in_args.no_docstrings:
-            output += '    """DESCRIPTION OF FUNC"""\n'
+            output += '\n    """DESCRIPTION OF FUNC"""'
 
-        output += "    x = 1\n"
-        output += "    return x\n\n\n"
+        output += "\n    x = 1\n"
+        output += "    return x"
 
 
 if not in_args.no_main:
-    output += "if __name__ == '__main__':\n"
+    output += "\n\n\nif __name__ == '__main__':"
 
     if not in_args.no_argparse:
-        output += argparse_block(4)
+        output += "\n" + argparse_block(4)
 
-    if in_args.time:
-        output += "    timer = timeit.timeit()"
-    output += "    print('Hello')\n"
-    if in_args.time:
-        output += "    print('program executed in %s' % timeit.timeit() - timer)\n"
+    output += "\n\n    print('Hello')"
 
-output = output.strip()
+output += "\n"
 
 with open(in_args.new_file, "w") as ifile:
     ifile.write(output)
