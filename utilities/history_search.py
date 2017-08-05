@@ -73,7 +73,10 @@ if __name__ == '__main__':
         if re.search(in_args.regex, command):
             if in_args.run and in_args.run == counter:
                 print(">>> %s" % command)
-                Popen(command, shell=True).wait()
+                try:
+                    Popen(command, shell=True).wait()
+                except KeyboardInterrupt:
+                    pass
                 sys.exit()
 
             line = str(counter) + line
