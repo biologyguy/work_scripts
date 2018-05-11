@@ -4,11 +4,11 @@
 import os
 import sys
 from buddysuite import SeqBuddy as Sb
+from buddysuite import buddy_resources as br
 import argparse
 import re
 from subprocess import Popen, PIPE
 from multiprocessing import Lock, cpu_count
-import MyFuncs
 from Bio import SeqIO
 from math import floor
 from time import strftime
@@ -19,7 +19,7 @@ from time import time
 def mc_run_blast(records, args):
     blastdbs, evalue, threads = args
 
-    tmp_file = MyFuncs.TempFile()
+    tmp_file = br.TempFile()
     with open(tmp_file.path, "w") as _ofile:
         SeqIO.write(records, _ofile, "fasta")
 
@@ -114,7 +114,7 @@ if in_args.from_scratch:
 root, dirs, files = next(os.walk(in_args.indir))
 total_hash_map = {}
 reverse_hash_map = {}
-blast_dir = MyFuncs.TempDir()
+blast_dir = br.TempDir()
 new_records_list = []
 prev_records_list = []
 prev_blast_dbs = []
@@ -124,7 +124,7 @@ file_lock = Lock()
 
 
 if in_args.strip_species:
-    timer = MyFuncs.RunTime(prefix="Run time: ")
+    timer = br.RunTime(prefix="Run time: ")
     if os.path.isfile("%s/all_by_all.csv" % in_args.outdir):
         counter = 0
         if not in_args.quiet:
@@ -151,7 +151,7 @@ if in_args.strip_species:
         if not in_args.quiet:
             print("Removing blast database\n")
 
-        for root, dirs, files in MyFuncs.walklevel("%s/blastdbs" % in_args.outdir):
+        for root, dirs, files in br.walklevel("%s/blastdbs" % in_args.outdir):
             for _file in files:
                 if re.match("%s\.p" % in_args.strip_species, _file):
                     os.remove("%s/%s" % (root, _file))
@@ -273,9 +273,8 @@ else:
     new_records_list = [new_records_list[i:i + 1000] for i in range(0, len(new_records_list), 1000)]
 
 num_threads = 3 if len(new_records_list) <= cpus else 1
-MyFuncs.run_multicore_function(new_records_list, mc_run_blast, [new_blast_dbs + prev_blast_dbs,
-                                                                in_args.e_value, num_threads],
-                               max_processes=in_args.num_threads, quiet=quiet)
+br.run_multicore_function(new_records_list, mc_run_blast, max_processes=in_args.num_threads, quiet=quiet,
+                          func_args=[new_blast_dbs + prev_blast_dbs, in_args.e_value, num_threads])
 
 if prev_records_list:
     print("\n***Blasting %s previous sequences against new databases***\n" % len(prev_records_list))
@@ -286,8 +285,8 @@ if prev_records_list:
         prev_records_list = [prev_records_list[i:i + 1000] for i in range(0, len(prev_records_list), 1000)]
 
     num_threads = 3 if len(prev_records_list) <= in_args.num_threads else 1
-    MyFuncs.run_multicore_function(prev_records_list, mc_run_blast, [new_blast_dbs, in_args.e_value, num_threads],
-                                   max_processes=in_args.num_threads, quiet=quiet)
+    br.run_multicore_function(prev_records_list, mc_run_blast, [new_blast_dbs, in_args.e_value, num_threads],
+                              max_processes=in_args.num_threads, quiet=quiet)
 
 # Remove self-hits and convert any e-values of 0.0 to 1e-180
 print("\n***Processing blast hits***")
@@ -303,7 +302,7 @@ total_hits += 1
 blast_p_hits_handle.seek(0)
 all_by_all_handle = open("%s/all_by_all.csv" % in_args.outdir, "a")
 
-printer = MyFuncs.DynamicPrint()
+printer = br.DynamicPrint()
 counter = 1
 start_time = round(time())
 for hit in blast_p_hits_handle:
@@ -328,7 +327,7 @@ for hit in blast_p_hits_handle:
 if not quiet:
     printer.write("\t--> formatting %s of %s hits" % (counter, total_hits))
 
-print("\n\tDone formatting in %s" % MyFuncs.pretty_time(round(time()) - start_time))
+print("\n\tDone formatting in %s" % br.pretty_time(round(time()) - start_time))
 
 with open("%s/blastdbs/hash_map.csv" % in_args.outdir, "w") as ofile:
     for _hash in total_hash_map:
