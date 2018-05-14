@@ -7,6 +7,8 @@ from buddysuite import SeqBuddy as Sb
 from buddysuite import buddy_resources as br
 import argparse
 import re
+import string
+import random
 from subprocess import Popen, PIPE
 from multiprocessing import Lock, cpu_count
 from Bio import SeqIO
@@ -200,6 +202,7 @@ for _file in files:
         seq_files.append("%s/%s" % (in_args.indir, _file))
 
 print("***Hashing proteomes***")
+chars = string.ascii_uppercase + string.digits
 for i in range(len(seq_files)):
     _file = seq_files[i]
     name = _file.split("/")[-1]
@@ -218,36 +221,27 @@ for i in range(len(seq_files)):
         continue
 
     print(name)
-    while True:
-        redo = False
-        seqbuddy = Sb.hash_ids(seqbuddy)
-        for next_hash, line in seqbuddy.hash_map.items():
-            # Re-hash if any duplicate hashes show up...
-            hash_subset = []
-            if next_hash in total_hash_map:
-                for _hash in hash_subset:
-                    del total_hash_map[_hash]
-                print("Wow, duplicate hash detected. That's like winning the lottery! Let's make a new one...")
-                redo = True
+    for indx, rec in enumerate(seqbuddy.records):
+        while True:
+            new_hash = "".join([random.choice(chars) for _ in range(10)])
+            if new_hash not in total_hash_map:
+                if not in_args.original_names:
+                    total_hash_map[new_hash] = "%s@%s" % (name, rec.id)
+                else:
+                    total_hash_map[new_hash] = str(rec.id)
+                rec.id = new_hash
+                rec.name = new_hash
+                seqbuddy.records[indx] = rec
                 break
 
-            hash_subset.append(next_hash)
-            if not in_args.original_names:
-                total_hash_map[next_hash] = "%s@%s" % (name, line)
-            else:
-                total_hash_map[next_hash] = line
-        if redo:
-            continue
+    seqbuddy = Sb.delete_metadata(seqbuddy)
+    _file = "%s/%s" % (blast_dir.path, _file.split("/")[-1])
+    new_records_list += seqbuddy.records
 
-        seqbuddy = Sb.delete_metadata(seqbuddy)
-        _file = "%s/%s" % (blast_dir.path, _file.split("/")[-1])
-        new_records_list += seqbuddy.records
+    with open(_file, "w") as ofile:
+        SeqIO.write(seqbuddy.records, ofile, "fasta")
 
-        with open(_file, "w") as ofile:
-            SeqIO.write(seqbuddy.records, ofile, "fasta")
-
-        seq_files[i] = _file
-        break
+    seq_files[i] = _file
 
 with open("%s/blastdbs/hash_map.csv" % in_args.outdir, "w") as ofile:
     for _hash in total_hash_map:
@@ -312,7 +306,6 @@ for hit in blast_p_hits_handle:
     counter += 1
     if counter % 1000 == 0:
         printer.write("\t--> formatting %s of %s hits" % (counter, total_hits))
-        printer.new_line()
     if hit == "":
         continue
 
@@ -323,10 +316,12 @@ for hit in blast_p_hits_handle:
     if data[10] == '0.0':
         data[10] = '1e-181'
 
-    data[0] = total_hash_map[data[0]]
-    data[1] = total_hash_map[data[1]]
-    all_by_all_handle.write("%s" % "\t".join(data))
-
+    try:
+        data[1] = total_hash_map[data[1]]
+        data[0] = total_hash_map[data[0]]
+        all_by_all_handle.write("%s" % "\t".join(data))
+    except KeyError:
+        print("Error:\t", data)
 printer.write("\t--> formatting %s of %s hits" % (counter, total_hits))
 
 print("\n\tDone formatting in %s" % br.pretty_time(round(time()) - start_time))
