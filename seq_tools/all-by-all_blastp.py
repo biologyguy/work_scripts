@@ -228,7 +228,7 @@ for i in range(len(seq_files)):
             if next_hash in total_hash_map:
                 for _hash in hash_subset:
                     del total_hash_map[_hash]
-                print("duplicate hash detected, redo...")
+                print("Wow, duplicate hash detected. That's like winning the lottery! Let's make a new one...")
                 redo = True
                 break
 
@@ -250,6 +250,9 @@ for i in range(len(seq_files)):
         seq_files[i] = _file
         break
 
+with open("%s/blastdbs/hash_map.csv" % in_args.outdir, "w") as ofile:
+    for _hash in total_hash_map:
+        ofile.write("%s,%s\n" % (_hash, total_hash_map[_hash]))
 
 print("\n***Creating new blast databases***")
 for _file in seq_files:
@@ -279,7 +282,7 @@ br.run_multicore_function(new_records_list, mc_run_blast, max_processes=in_args.
 if prev_records_list:
     print("\n***Blasting %s previous sequences against new databases***\n" % len(prev_records_list))
     if len(new_records_list) < in_args.num_threads * 1000:
-        group_size = floor(len(prev_records_list) / (in_args.num_threads - 1))
+        group_size = int(floor(len(prev_records_list) / (in_args.num_threads - 1)))
         prev_records_list = [prev_records_list[i:i + group_size] for i in range(0, len(prev_records_list), group_size)]
     else:
         prev_records_list = [prev_records_list[i:i + 1000] for i in range(0, len(prev_records_list), 1000)]
@@ -293,6 +296,7 @@ print("\n***Processing blast hits***")
 
 blast_p_hits_handle = open("%s/temp_blast_hits.csv" % in_args.outdir, "r")
 
+total_hits = 0
 for total_hits, l in enumerate(blast_p_hits_handle):
     pass
 
@@ -302,12 +306,12 @@ total_hits += 1
 blast_p_hits_handle.seek(0)
 all_by_all_handle = open("%s/all_by_all.csv" % in_args.outdir, "a")
 
-printer = br.DynamicPrint()
+printer = br.DynamicPrint(quiet=quiet)
 counter = 1
 start_time = round(time())
 for hit in blast_p_hits_handle:
     counter += 1
-    if counter % 1000 == 0 and not quiet:
+    if counter % 1000 == 0:
         printer.write("\t--> formatting %s of %s hits" % (counter, total_hits))
 
     if hit == "":
@@ -324,13 +328,8 @@ for hit in blast_p_hits_handle:
     data[1] = total_hash_map[data[1]]
     all_by_all_handle.write("%s" % "\t".join(data))
 
-if not quiet:
-    printer.write("\t--> formatting %s of %s hits" % (counter, total_hits))
+printer.write("\t--> formatting %s of %s hits" % (counter, total_hits))
 
 print("\n\tDone formatting in %s" % br.pretty_time(round(time()) - start_time))
-
-with open("%s/blastdbs/hash_map.csv" % in_args.outdir, "w") as ofile:
-    for _hash in total_hash_map:
-        ofile.write("%s,%s\n" % (_hash, total_hash_map[_hash]))
 
 os.remove("%s/temp_blast_hits.csv" % in_args.outdir)
