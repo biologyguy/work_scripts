@@ -25,7 +25,7 @@ def mc_run_blast(records, args):
 
     for blastdb in blastdbs:
         _cmd = "blastp -query %s -db %s -evalue %s -max_target_seqs 1000 -num_threads %s -dbsize 1000000000 " \
-               "-outfmt '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore " \
+               "-outfmt '6 qacc sacc pident length mismatch gapopen qstart qend sstart send evalue bitscore " \
                "qlen slen nident'" % (tmp_file.path, blastdb, evalue, threads)
 
         _output = Popen(_cmd, stdout=PIPE, shell=True).communicate()
@@ -261,7 +261,7 @@ for _file in seq_files:
     if "%s/blastdbs/%s" % (in_args.outdir, name) not in prev_blast_dbs:
         blast_db = "%s/blastdbs/%s" % (in_args.outdir, name)
         new_blast_dbs.append(blast_db)
-        cmd = "makeblastdb -in %s -parse_seqids -dbtype prot -out %s" % (_file, blast_db)
+        cmd = "makeblastdb -in %s -parse_seqids -dbtype prot -out %s -hash_index" % (_file, blast_db)
         Popen(cmd, shell=True).wait()
 
 if not new_blast_dbs:
