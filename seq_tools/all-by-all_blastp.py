@@ -78,14 +78,13 @@ parser.add_argument('--from_scratch', '-fs', action='store_true',
                     help="Force completely new search even if previous run is detected")
 parser.add_argument('--original_names', '-on', action="store_true",
                     help='Do not change the names in input files to organism@seq_id. Just keep whatever is present.')
-parser.add_argument('--strip_species', "-ss", help="Remove ")
+parser.add_argument('--strip_species', "-ss", help="Remove")
+parser.add_argument('--log', '-l', help="Convert dynamic print to line-by-line logging", action="store_true")
 parser.add_argument('--quiet', '-q', help="Suppress output to any DynamicPrint objects.", action="store_true")
 
 in_args = parser.parse_args()
 
 in_args.extensions = [re.sub("\.", "", ext) for ext in in_args.extensions]
-
-quiet = False if not in_args.quiet else True
 
 print("*** Preparing to run all-by-all blastp ***")
 # ### Prepare the script environment ### #
@@ -276,8 +275,8 @@ else:
     new_records_list = [new_records_list[i:i + 1000] for i in range(0, len(new_records_list), 1000)]
 
 num_threads = 3 if len(new_records_list) <= cpus else 1
-br.run_multicore_function(new_records_list, mc_run_blast, max_processes=in_args.num_threads, quiet=quiet,
-                          func_args=[new_blast_dbs + prev_blast_dbs, in_args.e_value, num_threads])
+br.run_multicore_function(new_records_list, mc_run_blast, max_processes=in_args.num_threads, quiet=in_args.quiet,
+                          func_args=[new_blast_dbs + prev_blast_dbs, in_args.e_value, num_threads], log=in_args.log)
 
 if prev_records_list:
     print("\n***Blasting %s previous sequences against new databases***\n" % len(prev_records_list))
@@ -289,7 +288,7 @@ if prev_records_list:
 
     num_threads = 3 if len(prev_records_list) <= in_args.num_threads else 1
     br.run_multicore_function(prev_records_list, mc_run_blast, [new_blast_dbs, in_args.e_value, num_threads],
-                              max_processes=in_args.num_threads, quiet=quiet)
+                              max_processes=in_args.num_threads, quiet=in_args.quiet, log=in_args.log)
 
 # Remove self-hits and convert any e-values of 0.0 to 1e-180
 print("\n***Processing blast hits***")
@@ -306,14 +305,14 @@ total_hits += 1
 blast_p_hits_handle.seek(0)
 all_by_all_handle = open("%s/all_by_all.csv" % in_args.outdir, "a")
 
-printer = br.DynamicPrint(quiet=quiet)
+printer = br.DynamicPrint(quiet=in_args.quiet, log=in_args.log)
 counter = 1
 start_time = round(time())
 for hit in blast_p_hits_handle:
     counter += 1
     if counter % 1000 == 0:
         printer.write("\t--> formatting %s of %s hits" % (counter, total_hits))
-
+        printer.new_line()
     if hit == "":
         continue
 
