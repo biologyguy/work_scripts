@@ -25,6 +25,8 @@ def main():
 
     # Positional
     parser.add_argument("sequences", help="Specify a sequence file")
+    parser.add_argument("-i", "--in_place", action="store_true",
+                        help="Overwrite original file. Be sure you want to do this!!")
     in_args = parser.parse_args()
 
     final_records = []
@@ -44,7 +46,10 @@ def main():
                 max_seq = rec
 
     seqs.records = final_records
-    print(seqs)
+    if in_args.in_place:
+        seqs.write(in_args.sequences)
+    else:
+        print(seqs)
 
 
 if __name__ == '__main__':
