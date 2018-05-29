@@ -260,6 +260,8 @@ for _file in seq_files:
 if not new_blast_dbs:
     sys.exit("No new proteomes detected. Exiting with nothing to be done.")
 
+new_records_list = sorted(new_records_list, key=lambda x: len(x), reverse=True)
+
 print("\n***Blasting %s new sequences against all databases***\n" % len(new_records_list))
 if len(new_records_list) < in_args.num_threads * 1000:
     group_size = floor(len(new_records_list) / (in_args.num_threads - 1))
@@ -271,6 +273,8 @@ else:
 num_threads = 3 if len(new_records_list) <= cpus else 1
 br.run_multicore_function(new_records_list, mc_run_blast, max_processes=in_args.num_threads, quiet=in_args.quiet,
                           func_args=[new_blast_dbs + prev_blast_dbs, in_args.e_value, num_threads], log=in_args.log)
+
+prev_records_list = sorted(prev_records_list, key=lambda x: len(x), reverse=True)
 
 if prev_records_list:
     print("\n***Blasting %s previous sequences against new databases***\n" % len(prev_records_list))
