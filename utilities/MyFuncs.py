@@ -553,3 +553,107 @@ def ask(input_prompt, default="yes", timeout=0):
 
     except TimeoutError:
         return False
+
+
+def tablizer(raw_input, max_width=110, cell_widths=(), right_pad=2, underline_heading=True, to_list=False):
+    """
+    Convert a list of lists of strings into a nice table
+    :param raw_input: [(row1, row2, row3, ...), (row1, row2, row3, ...)]
+    :param max_width: Maximum width of the entire table
+    :param cell_widths: Granular control of how big each cell can be
+    :param right_pad: How much space between cells?
+    :param underline_heading: Add underlines to table headers
+    :param to_list: Output the result as a list, instead of a string
+    :return: str
+    """
+    # Start by getting the incoming input into a list of lists of strings
+    raw_input = [[str(item) for item in group] for group in raw_input]
+
+    if not cell_widths:
+        max_widths = [[indx, 0] for indx in range(len(raw_input[0]))]
+        largest_words = [[indx, ""] for indx in range(len(raw_input[0]))]
+        for row in raw_input:
+            for indx, item in enumerate(row):
+                item = str(item)
+                max_widths[indx][1] = len(item) if len(item) > max_widths[indx][1] else max_widths[indx][1]
+                if not item or re.match(" +$", item):
+                    words_sizes = [" "]
+                else:
+                    words_sizes = sorted(item.split(), key=lambda x: len(x), reverse=True)
+                largest_words[indx][1] = words_sizes[0] if len(words_sizes[0]) > len(largest_words[indx][1]) \
+                    else largest_words[indx][1]
+
+        # This is a check that max_width is sufficient to cover the largest words in each column. Expand if needed
+        min_width = sum([len(x[1]) for x in largest_words]) + (right_pad * len(raw_input[0]))
+        max_width = max_width if max_width > min_width else min_width
+
+        max_widths = sorted(max_widths, key=lambda x: x[1])
+        remaining_cols = len(raw_input[0])
+        remaining_space = max_width - (remaining_cols * right_pad)
+        equal_width = floor(remaining_space / remaining_cols)
+        cell_widths = [0 for _ in range(remaining_cols)]
+        for indx, val in max_widths:
+            if val + right_pad < equal_width:
+                cell_widths[indx] = val + right_pad
+                remaining_cols -= 1
+                remaining_space -= (val + right_pad)
+                equal_width = remaining_space if not remaining_cols else floor(remaining_space / remaining_cols)
+            else:
+                cell_widths[indx] = equal_width + right_pad
+    for col_indx, mw in enumerate(cell_widths):
+        for raw_row in raw_input:
+            raw_row[col_indx] = chunk_text(raw_row[col_indx], mw).split("\n")
+
+    output = "" if not to_list else []
+
+    for row_indx, row in enumerate(raw_input):
+        num_lines = max([len(x) for x in row])
+        for line_indx in range(num_lines):
+            line = ""
+            for cell_indx, lines in enumerate(row):
+                if len(lines) >= line_indx + 1:
+                    if underline_heading and row_indx == 0:
+                        line += "\033[4m"
+                        line += lines[line_indx]
+                        line += "\033[24m"
+                        line += " " * (cell_widths[cell_indx] - len(lines[line_indx]))
+                    else:
+                        line += lines[line_indx].ljust(cell_widths[cell_indx], " ")
+                else:
+                    line += " ".ljust(cell_widths[cell_indx], " ")
+            output += line + "\n" if not to_list else [line + "\n"]
+    return output
+
+
+def chunk_list(l, num_chunks):
+    """
+    Break up a list into a list of lists
+    :param l: Input list
+    :param num_chunks: How many lists should the list be chunked into
+    :return:
+    """
+    num_chunks = int(num_chunks)
+    if num_chunks < 1 or not l:
+        raise AttributeError("Input list must have items in it and num_chunks must be a positive integer")
+
+    size = int(ceil(len(l) / num_chunks))
+    num_long = len(l) % num_chunks
+    num_long = num_long if num_long != 0 else num_chunks
+    chunks = [l[i:i + size] for i in range(0, num_long * size, size)]
+    if size != 1:
+        chunks += [l[i:i + size - 1] for i in range(num_long * size, len(l), size - 1)]
+    return chunks
+
+
+def chunk_text(text, max_line_len):
+    output = ""
+    text = text.split()
+    cur_line = ""
+    for word in text:
+        if len(cur_line) + len(word) + 1 > max_line_len:
+            output += cur_line + "\n"
+            cur_line = word
+        else:
+            cur_line += " " + word
+    output += cur_line
+    return output
