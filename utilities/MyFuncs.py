@@ -580,25 +580,16 @@ def normalize(data, trim_ends=1.0):
     max_limit = ceil(len(data) * (1 - trim_ends)) - 1
     min_limit = -1 * (max_limit + 1)
 
-    if type(data) == dict:
-        sorted_data = sorted([data[key] for key in data])
-        _max = sorted_data[max_limit]
-        _min = sorted_data[min_limit]
-        data_range = _max - _min
-        for key in data:
-            data[key] = (data[key] - _min) / data_range
-            data[key] = 1. if data[key] > 1. else data[key]
-            data[key] = 0. if data[key] < 0. else data[key]
+    sorted_data = sorted([data[key] for key in data]) if type(data) == dict else sorted(data)
+    _max = sorted_data[max_limit]
+    _min = sorted_data[min_limit]
+    data_range = _max - _min
 
-    else:
-        sorted_data = sorted(data)
-        _max = sorted_data[max_limit]
-        _min = sorted_data[min_limit]
-        data_range = _max - _min
-        for i in range(len(data)):
-            data[i] = (data[i] - _min) / data_range
-            data[i] = 1. if data[i] > 1. else data[i]
-            data[i] = 0. if data[i] < 0. else data[i]
+    keys = [key for key in data] if type(data) == dict else range(len(data))
+    for key in keys:
+        data[key] = (data[key] - _min) / data_range
+        data[key] = 1. if data[key] > 1. else data[key]
+        data[key] = 0. if data[key] < 0. else data[key]
 
     return data
 
