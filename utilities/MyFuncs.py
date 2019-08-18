@@ -32,6 +32,21 @@ import re
 import string
 from random import choice
 import signal
+import argparse
+from collections import OrderedDict
+from random import random
+import io
+
+
+# Credit to rr- (http://stackoverflow.com/users/2016221/rr)
+# http://stackoverflow.com/questions/18275023/dont-show-long-options-twice-in-print-help-from-argparse
+class CustomHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    def _format_action_invocation(self, action):
+        if not action.option_strings or action.nargs == 0:
+            return super()._format_action_invocation(action)
+        default = self._get_default_metavar_for_optional(action)
+        args_string = self._format_args(action, default)
+        return ', '.join(action.option_strings) + ' ' + args_string
 
 
 class Timer(object):
@@ -141,6 +156,65 @@ class DynamicPrint(object):
         return
 
 
+class KellysColors(object):
+    # https://eleanormaclure.files.wordpress.com/2011/03/colour-coding.pdf
+    def __init__(self, convert2hex=False):
+        self.kelly_colors = OrderedDict(deep_yellowish_brown=(89, 51, 21),
+                                        strong_reddish_brown=(127, 24, 13),
+                                        strong_purplish_red=(179, 40, 81),
+                                        strong_purplish_pink=(246, 118, 142),
+                                        vivid_red=(193, 0, 32),
+                                        vivid_reddish_orange=(241, 58, 19),
+                                        vivid_orange=(255, 104, 0),
+                                        strong_yellowish_pink=(255, 122, 92),
+                                        vivid_orange_yellow=(255, 142, 0),
+                                        vivid_yellow=(255, 179, 0),
+                                        vivid_greenish_yellow=(244, 200, 0),
+                                        grayish_yellow=(206, 162, 98),
+                                        vivid_yellowish_green=(147, 170, 0),
+                                        vivid_green=(0, 125, 52),
+                                        dark_olive_green=(35, 44, 22),
+                                        very_light_blue=(166, 189, 215),
+                                        strong_blue=(0, 83, 138),
+                                        strong_violet=(83, 55, 122),
+                                        strong_purple=(128, 62, 117),
+                                        medium_gray=(129, 112, 102))
+        self.hex = convert2hex
+        self.generator = self.color_iter()
+
+    def color_iter(self):
+        degree = 0
+        while True:
+            for color, rgb in self.kelly_colors.items():
+                rgb = purturb_rgb(rgb, degree)
+                if self.hex:
+                    rgb = '#%02x%02x%02x' % rgb
+                yield rgb
+            degree += 10
+
+    def iter(self):
+        return next(self.generator)
+
+
+def purturb_rgb(rgb, degree=10):
+    new_rgb = []
+    for code in rgb:
+        degree = round(random() * degree)
+        degree = degree * -1 if random() < 0.5 else degree
+        while degree != 0:
+            code += degree
+            if code > 255:
+                degree = 255 - code
+                code = 255
+            elif code < 0:
+                degree = abs(code)
+                code = 0
+            else:
+                degree = 0
+        new_rgb.append(code)
+    return new_rgb[0], new_rgb[1], new_rgb[2]
+
+
 def pretty_time(seconds):
     if seconds < 60:
         output = "%i sec" % seconds
@@ -197,97 +271,106 @@ def usable_cpu_count():
 
 
 def run_multicore_function(iterable, function, func_args=False, max_processes=0, quiet=False, out_type=sys.stdout):
-        # fun little piece of abstraction here... directly pass in a function that is going to be looped over, and
-        # fork those loops onto independent processes. Any arguments the function needs must be provided as a list.
-        d_print = DynamicPrint(out_type)
+    """
+    fun little piece of abstraction here... directly pass in a function that is going to be looped over, and
+    fork those loops onto independent processes. Any arguments the function needs must be provided as a list.
+    :param iterable: Iterable collection of things that will be fed into the multicore function
+    :param function: Reference to a function that each iterable item will be fed into
+    :param func_args: Tuple of any additional arguments that need to be passed into the function
+    :param max_processes: Either auto-detect the system resources (set 0) or specify a number
+    :param quiet: Do not print status to console
+    :param out_type: Switch output to stderr, if desired.
+    :return:
+    """
+    d_print = DynamicPrint(out_type)
 
-        if max_processes == 0:
-            max_processes = usable_cpu_count()
+    if max_processes == 0:
+        max_processes = usable_cpu_count()
 
-        else:
-            cpus = cpu_count()
-            if max_processes > cpus:
-                max_processes = cpus
-            elif max_processes < 1:
-                max_processes = 1
+    else:
+        cpus = cpu_count()
+        if max_processes > cpus:
+            max_processes = cpus
+        elif max_processes < 1:
+            max_processes = 1
 
-        max_processes = max_processes if max_processes < len(iterable) else len(iterable)
+    max_processes = max_processes if max_processes < len(iterable) else len(iterable)
 
-        running_processes = 0
-        child_list = []
-        start_time = round(time())
-        elapsed = 0
-        counter = 0
-        if not quiet:
-            d_print.write("Running function %s() on %s cores\n" % (function.__name__, max_processes))
-        # fire up the multi-core!!
-        if not quiet:
-            d_print.write("\tJob 0 of %s" % len(iterable))
+    running_processes = 0
+    child_list = []
+    start_time = round(time())
+    elapsed = 0
+    counter = 0
+    if not quiet:
+        d_print.write("Running function %s() on %s cores\n" % (function.__name__, max_processes))
+    # fire up the multi-core!!
+    if not quiet:
+        d_print.write("\tJob 0 of %s" % len(iterable))
 
-        for next_iter in iterable:
-            if type(iterable) is dict:
-                next_iter = iterable[next_iter]
-            while 1:     # Only fork a new process when there is a free processor.
-                if running_processes < max_processes:
-                    # Start new process
-                    if not quiet:
-                        d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
+    for next_iter in iterable:
+        if type(iterable) is dict:
+            next_iter = iterable[next_iter]
+        while 1:     # Only fork a new process when there is a free processor.
+            if running_processes < max_processes:
+                # Start new process
+                if not quiet:
+                    d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
 
-                    if func_args:
-                        if not isinstance(func_args, list):
-                            exit("Error in run_multicore_function(): The arguments passed into the multi-thread "
-                                 "function must be provided as a list")
-                        p = Process(target=function, args=(next_iter, func_args))
+                if func_args:
+                    if not isinstance(func_args, list):
+                        exit("Error in run_multicore_function(): The arguments passed into the multi-thread "
+                             "function must be provided as a list")
+                    p = Process(target=function, args=(next_iter, func_args))
 
-                    else:
-                        p = Process(target=function, args=(next_iter,))
-                    p.start()
-                    child_list.append(p)
-                    running_processes += 1
-                    counter += 1
-                    break
                 else:
-                    # processor wait loop
-                    while 1:
-                        for i in range(len(child_list)):
-                            if child_list[i].is_alive():
-                                continue
-                            else:
-                                child_list.pop(i)
-                                running_processes -= 1
-                                break
-
-                        if not quiet:
-                            if (start_time + elapsed) < round(time()):
-                                elapsed = round(time()) - start_time
-                                d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
-
-                        if running_processes < max_processes:
+                    p = Process(target=function, args=(next_iter,))
+                p.start()
+                child_list.append(p)
+                running_processes += 1
+                counter += 1
+                break
+            else:
+                # processor wait loop
+                while 1:
+                    for i in range(len(child_list)):
+                        if child_list[i].is_alive():
+                            continue
+                        else:
+                            child_list.pop(i)
+                            running_processes -= 1
                             break
 
-        # wait for remaining processes to complete --> this is the same code as the processor wait loop above
+                    if not quiet:
+                        if (start_time + elapsed) < round(time()):
+                            elapsed = round(time()) - start_time
+                            d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
+
+                    if running_processes < max_processes:
+                        break
+
+    # wait for remaining processes to complete --> this is the same code as the processor wait loop above
+    if not quiet:
+        d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
+
+    while len(child_list) > 0:
+        for i in range(len(child_list)):
+            if child_list[i].is_alive():
+                continue
+            else:
+                child_list.pop(i)
+                running_processes -= 1
+                break  # need to break out of the for-loop, because the child_list index is changed by pop
+
         if not quiet:
-            d_print.write("\tJob %s of %s (%s)" % (counter, len(iterable), pretty_time(elapsed)))
+            if (start_time + elapsed) < round(time()):
+                elapsed = round(time()) - start_time
+                d_print.write("\t%s total jobs (%s, %s jobs remaining)" % (len(iterable), pretty_time(elapsed),
+                                                                           len(child_list)))
 
-        while len(child_list) > 0:
-            for i in range(len(child_list)):
-                if child_list[i].is_alive():
-                    continue
-                else:
-                    child_list.pop(i)
-                    running_processes -= 1
-                    break  # need to break out of the for-loop, because the child_list index is changed by pop
-
-            if not quiet:
-                if (start_time + elapsed) < round(time()):
-                    elapsed = round(time()) - start_time
-                    d_print.write("\t%s total jobs (%s, %s jobs remaining)" % (len(iterable), pretty_time(elapsed),
-                                                                               len(child_list)))
-
-        if not quiet:
-            d_print.write("\tDONE: %s jobs in %s\n" % (len(iterable), pretty_time(elapsed)))
-        # func_args = []  # This may be necessary because of weirdness in assignment of incoming arguments
-        return
+    if not quiet:
+        d_print.write("\tDONE: %s jobs in %s\n" % (len(iterable), pretty_time(elapsed)))
+    # func_args = []  # This may be necessary because of weirdness in assignment of incoming arguments
+    return
 
 
 class TempDir(object):
@@ -302,21 +385,34 @@ class TempDir(object):
         yield tmp_dir
         rmtree(self.path)
 
+    def copy_to(self, src):
+        full_path = os.path.abspath(src)
+        end_path = os.path.split(full_path)[1]
+        if os.path.isdir(src):
+            copytree(src, os.path.join(self.path, end_path))
+        elif os.path.isfile(src):
+            copyfile(src, os.path.join(self.path, end_path))
+        else:
+            return False
+        return os.path.join(self.path, end_path)
+
     def subdir(self, dir_name=None):
         if not dir_name:
             dir_name = "".join([choice(string.ascii_letters + string.digits) for _ in range(10)])
             while dir_name in self.subdirs:  # Catch the very unlikely case that a duplicate occurs
                 dir_name = "".join([choice(string.ascii_letters + string.digits) for _ in range(10)])
 
-        subdir_path = "%s/%s" % (self.path, dir_name)
-        os.mkdir(subdir_path)
-        self.subdirs.append(dir_name)
+        subdir_path = os.path.join(self.path, dir_name)
+        if not os.path.exists(subdir_path):
+            os.mkdir(subdir_path)
+        if dir_name not in self.subdirs:
+            self.subdirs.append(dir_name)
         return subdir_path
 
     def del_subdir(self, _dir):
-        _dir = _dir.split("/")[-1]
+        path, _dir = os.path.split(_dir)
         del self.subdirs[self.subdirs.index(_dir)]
-        rmtree("%s/%s" % (self.path, _dir))
+        rmtree(os.path.join(self.path, _dir))
         return
 
     def subfile(self, file_name=None):
@@ -326,18 +422,18 @@ class TempDir(object):
             while file_name in files:  # Catch the very unlikely case that a duplicate occurs
                 file_name = "".join([choice(string.ascii_letters + string.digits) for _ in range(10)])
 
-        open("%s/%s" % (self.path, file_name), "w", encoding="utf-8").close()
+        open(os.path.join(self.path, file_name), "w", encoding="utf-8").close()
         self.subfiles.append(file_name)
-        return "%s/%s" % (self.path, file_name)
+        return os.path.join(self.path, file_name)
 
     def del_subfile(self, _file):
-        _file = _file.split("/")[-1]
+        path, _file = os.path.split(_file)
         del self.subfiles[self.subfiles.index(_file)]
-        os.remove("%s/%s" % (self.path, _file))
+        os.remove(os.path.join(self.path, _file))
         return
 
     def save(self, location, keep_hash=False):
-        location = location if not keep_hash else "%s/%s" % (location, self.path.split("/")[-1])
+        location = location if not keep_hash else os.path.join(location, os.path.split(self.path)[-1])
         if os.path.isdir(location):
             print("Save Error: Indicated output folder already exists in TempDir.save(%s)" % location, file=sys.stderr)
             return False
@@ -348,21 +444,23 @@ class TempDir(object):
 
 class TempFile(object):
     # I really don't like the behavior of tempfile.[Named]TemporaryFile(), so hack TemporaryDirectory() via TempDir()
-    def __init__(self, mode="w", byte_mode=False):
+    def __init__(self, mode="w", byte_mode=False, encoding="utf-8"):
         self._tmp_dir = TempDir()  # This needs to be a persistent (ie self.) variable, or the directory will be deleted
-        dir_hash = self._tmp_dir.path.split("/")[-1]
+        path, dir_hash = os.path.split(self._tmp_dir.path)
         self.name = dir_hash
-        self.path = "%s/%s" % (self._tmp_dir.path, dir_hash)
-        open(self.path, "w").close()
+        self.path = os.path.join(self._tmp_dir.path, dir_hash)
+        open(self.path, "w", encoding=encoding).close()
         self.handle = None
         self.bm = "b" if byte_mode else ""
         self.mode = mode
+        self.encoding = encoding
 
     def open(self, mode=None):
         mode = "%s%s" % (self.mode, self.bm) if not mode else "%s%s" % (mode, self.bm)
         if self.handle:
             self.close()
-        self.handle = open(self.path, mode)
+        encoding = None if self.bm or "b" in mode else self.encoding
+        self.handle = open(self.path, mode, encoding=encoding)
 
     def close(self):
         if self.handle:
@@ -396,7 +494,8 @@ class TempFile(object):
         if already_open:
             position = self.handle.tell()
             self.close()
-        with open(self.path, "r%s" % self.bm) as ifile:
+        encoding = None if self.bm else self.encoding
+        with open(self.path, "r%s" % self.bm, encoding=encoding) as ifile:
             content = ifile.read()
         if already_open:
             self.open(mode="a")
@@ -410,7 +509,8 @@ class TempFile(object):
         return
 
     def save(self, location):
-        with open(location, "w%s" % self.bm) as ofile:
+        encoding = None if self.bm else self.encoding
+        with open(location, "w%s" % self.bm, encoding=encoding) as ofile:
             ofile.write(self.read())
         return
 
@@ -657,3 +757,44 @@ def chunk_text(text, max_line_len):
             cur_line += " " + word
     output += cur_line
     return output
+
+
+def easy_read(ifile):
+    if str(type(ifile)) == "<class '_io.TextIOWrapper'>":
+        if not ifile.seekable():
+            input_txt = ifile.read()
+            ifile = io.StringIO(utf_encode(input_txt))
+        ifile = ifile.read()
+    elif os.path.isfile(ifile):
+        in_file = ifile
+        with open(in_file, "r", encoding="utf-8") as ifile:
+            ifile = io.StringIO(ifile.read())
+            ifile = ifile.read()
+    else:
+        ifile = None
+    return ifile
+
+
+def utf_encode(data):
+    import codecs
+    tmp = TempFile()
+    with open(tmp.path, "w", encoding="utf-8") as ofile:
+        ofile.write(data)
+
+    with codecs.open(tmp.path, "r", "utf-8", errors="replace") as ifile:
+        data = ifile.read()
+    data = re.sub(r'\r', r'\n', data)
+    return data
+
+
+def num_sorted(input_list):
+    """
+    Sort a list of strings in the way that takes embedded numbers into account
+    """
+    def convert(text):
+        return int(text) if text.isdigit() else text
+
+    def alpha_num_key(key):
+        return [convert(c) for c in re.split('([0-9]+)', str(key))]
+
+    return sorted(input_list, key=alpha_num_key)
