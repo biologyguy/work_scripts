@@ -34,13 +34,19 @@ def main():
             tindx += 1
             new_line += " " * (4 - (len(new_line) % 4))
             new_line += line[tabs[tindx - 1].end():t.start()]
-            if tindx == len(tabs) - 1:
-                new_line += " " * (4 - (len(new_line) % 4))
-                new_line += line[t.end():]
+        if tabs:
+            new_line += " " * (4 - (len(new_line) % 4))
+            new_line += line[tabs[-1].end():]
         text[lindx] = new_line
 
     text = "\n".join(text)
-    file_path = None if not os.path.isfile(in_args.input[0]) else in_args.input[0]
+
+    # Strip trailing whitespace too
+    text = re.sub(r' +$', '', text, flags=re.MULTILINE)
+    file_path = None
+    if type(in_args.input[0]) == str and os.path.isfile(in_args.input[0]):
+        file_path = str(in_args.input[0])
+
     if file_path and in_args.in_place:
         with open(file_path, "w") as ofile:
             ofile.write(text)
