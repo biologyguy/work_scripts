@@ -41,8 +41,15 @@ def main():
 
     text = "\n".join(text)
 
-    # Strip trailing whitespace too
+    # Strip trailing whitespace
     text = re.sub(r' +$', '', text, flags=re.MULTILINE)
+
+    # Remove excessive line breaks
+    text = re.sub(r'\n\n+', r'\n\n', text)
+
+    # Strip EOF line breaks
+    text = re.sub(r'\n*$', '\n', text)
+
     file_path = None
     if type(in_args.input[0]) == str and os.path.isfile(in_args.input[0]):
         file_path = str(in_args.input[0])
@@ -51,7 +58,7 @@ def main():
         with open(file_path, "w") as ofile:
             ofile.write(text)
     else:
-        print(text)
+        sys.stdout.write(text)
 
 
 if __name__ == '__main__':
