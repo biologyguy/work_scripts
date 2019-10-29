@@ -50,6 +50,9 @@ def main():
     # Strip EOF line breaks
     text = re.sub(r'\n*$', '\n', text)
 
+    # Add correct number of line breaks between tests
+    text = re.sub(r'}\n+( +)@Test', r'}\n\n\1@Test', text, flags=re.MULTILINE)
+
     file_path = None
     if type(in_args.input[0]) == str and os.path.isfile(in_args.input[0]):
         file_path = str(in_args.input[0])
