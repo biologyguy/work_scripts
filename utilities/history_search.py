@@ -6,14 +6,15 @@
 Return regex of my .history folder
 """
 
-import os
-import sys
-import re
 import argparse
+import os
+import re
 from subprocess import Popen, PIPE
+import sys
+import time
 
 if __name__ == '__main__':
-    rows, columns = os.popen('stty size', 'r').read().split()
+    rows, columns = os.popen('stty size', 'r').read().split()  # Get terminal window size
 
     parser = argparse.ArgumentParser(prog="history", description="",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -24,21 +25,34 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--date", help="Specify a specific history file", action="store")
     parser.add_argument("-dlt", "--delete", help="Remove history records", type=int, action="store")
     parser.add_argument("-e", "--expand", help="Fully expand all returned commands", action="store_true")
+    parser.add_argument("-hist", "--history", help="Look at hist calls", action="store_true")
     parser.add_argument("-l", "--length", default=columns, type=int,
                         help="Length of commands returned. Default is set to width of terminal.")
     parser.add_argument("-r", "--run", nargs="?", type=int, action="append",
                         help="Re-run the most recent result matching your search")
+    parser.add_argument("-rc", "--run_careful", nargs="?", type=int, action="append",
+                        help="Re-run the most recent result matching your search, but check first")
     parser.add_argument("-u", "--unique", action="store_true", help="Do not show replicate commands")
     parser.add_argument("-ld", "--list_dates", help="List the available history files", action="store_true")
     parser.add_argument("-pid", "--process_id", help="Restrict results to specific pid.", action="store")
 
     in_args = parser.parse_args()
 
-    save_dir = Popen("echo $HISTORYREC", shell=True, stdout=PIPE).communicate()[0].decode()
-    root, dirs, hist_files = next(os.walk("%s/.history/" % save_dir.strip()))
+    save_dir = Popen("echo $HISTORYREC", shell=True, stdout=PIPE).communicate()[0].decode().strip()
+    root, dirs, hist_files = next(os.walk("%s/.history/" % save_dir))
+
+    careful = False
+    if in_args.run_careful:
+        careful = True
+        in_args.run = in_args.run_careful
 
     if in_args.run:
         in_args.run = 1 if not in_args.run[0] else in_args.run[0]
+
+    if in_args.history:
+        hist_files = [_file for _file in hist_files if _file.startswith("hist")]
+    else:
+        hist_files = [_file for _file in hist_files if _file.startswith("bash")]
 
     if in_args.list_dates:
         for _file in hist_files:
@@ -81,10 +95,20 @@ if __name__ == '__main__':
             if re.search(in_args.regex, command):
                 if in_args.run and in_args.run == counter:
                     print(">>> %s" % command)
-                    try:
-                        Popen(command, shell=True).wait()
-                    except KeyboardInterrupt:
-                        pass
+                    if not careful or input("Continue [no]? ").lower().startswith("y"):
+                        try:
+                            Popen(command, shell=True).wait()
+                        except KeyboardInterrupt:
+                            pass
+
+                    # Write separate history files for cases where history_search is used to run a command
+                    date = time.strftime("%b/%d/%y %H:%M")
+                    output = ":%s %s; %s" % (os.getppid(), date, command)
+                    current_file = "hist_history-%s" % time.strftime("%Y%m")
+
+                    with open("%s/.history/%s" % (save_dir, current_file), "a") as ofile:
+                        ofile.write("%s\n" % output.strip())
+
                     sys.exit()
 
                 if in_args.delete and in_args.delete == counter:

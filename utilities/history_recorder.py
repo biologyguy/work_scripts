@@ -31,10 +31,10 @@ pid = sys.argv[-1]
 command = sub(":[0-9]* [JFMASOND][a-z]{2}/[0-3][0-9]/[0-9]{2} [0-9]{2}:[0-9]{2}; ", "", command)
 
 # I don't want .history filling up with useless crap, so skip these common 'look' commands
-skip_commands = ["^ls *.*", "^la *.*", "^ll *.*", "^hs *.*", "^js *.*", "^cat *.*", "^head *.*", "^tail *.*"]
+skip_commands = ["ls", "la", "ll", "hs", "js", "cat", "head", "tail"]
 
 for skip in skip_commands:
-    if search(skip, command):
+    if search(r'^%s *' % skip, command) and not search(r'\|', command):
         sys.exit()
 
 # To override skips, prepend :; to the front of command, and then strip those characters from the history
