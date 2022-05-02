@@ -13,6 +13,11 @@ from subprocess import Popen, PIPE
 import sys
 import time
 
+
+# List of patterns that should never be run blind
+CAREFUL_OVERRIDE = {r"git reset", r"git.*\-D", r"rm.*\*", r"sudo"}
+
+
 if __name__ == '__main__':
     rows, columns = os.popen('stty size', 'r').read().split()  # Get terminal window size
 
@@ -95,7 +100,10 @@ if __name__ == '__main__':
             if re.search(in_args.regex, command):
                 if in_args.run and in_args.run == counter:
                     print(">>> %s" % command)
-                    if not careful or input("Continue [no]? ").lower().startswith("y"):
+                    # Extra sanity check to prevent accidental destruction or mayhem
+                    careful_override = any([re.search(regx, command) is not None for regx in CAREFUL_OVERRIDE])
+                    if (not careful and not careful_override) or \
+                            input("Continue [no]? ").lower().startswith("y"):
                         try:
                             Popen(command, shell=True).wait()
                         except KeyboardInterrupt:
