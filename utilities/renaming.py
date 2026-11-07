@@ -15,6 +15,7 @@ parser.add_argument('replace_string', help='String that the RegEx will be replac
                     default="")
 parser.add_argument('-d', '--dir', help='Specify the directory with your files. Default is current working dir.',
                     action='store', default=os.getcwd())
+parser.add_argument('-sd', '--strip_dot', help="Remove delimiting period", action="store_true")
 parser.add_argument('-f', '--folders', help='Rename folders as well.', action='store_true', default=False)
 parser.add_argument('-r', '--recursive', help='Also rename files in sub-directories.',
                     action='store_true', default=False)
@@ -126,6 +127,11 @@ def rename(query, ifile, replace, path):
                     output = "%s%s%s" % (output[:(i.end() + offset)], replace, output[(i.end() + offset):])
 
                 offset += len(replace)
+
+    # Handle period delimited names if the -sd flag is passed
+    if incoming_args.strip_dot:
+        output = output.split(".")
+        output = " ".join(output[:-1]) + "." + output[-1]
 
     if output != ifile:
         file_path = ("%s/%s" % (path, ifile))
